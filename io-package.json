@@ -45,7 +45,7 @@
     "adminUI": {
       "config": "json"
     },
-    "installedFrom": "https://github.com/smartcuc/eswes"
+    "installedFrom": "https://github.com/smartcuc/ioBroker.sharegy"
   },
   "native": {
     "protocol": "wss",

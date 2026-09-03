@@ -18,17 +18,13 @@ Connects your ioBroker Smart Home (PV systems, battery storages, heat pumps, BWW
 2. Click on the **GitHub Octocat icon** (Install from custom URL) in the top toolbar.
 3. Select **Custom URL** and enter:
    ```
-   https://github.com/smartcuc/eswes/tree/main/integrations/iobroker.sharegy
+   https://github.com/smartcuc/ioBroker.sharegy
    ```
-   *(or copy the folder `integrations/iobroker.sharegy` into `/opt/iobroker/node_modules/iobroker.sharegy` and run `iobroker add sharegy`)*
 4. Create an instance of the adapter (`sharegy.0`).
 
 ### Option 2: CLI Installation on your ioBroker Server
 ```bash
-cd /opt/iobroker
-npm install https://github.com/smartcuc/eswes/tarball/main#subdirectory=integrations/iobroker.sharegy
-iobroker add sharegy
-iobroker upload sharegy
+iobroker url https://github.com/smartcuc/ioBroker.sharegy
 ```
 
 ---

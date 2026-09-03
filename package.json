@@ -23,8 +23,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/smartcuc/eswes.git",
-    "directory": "integrations/iobroker.sharegy"
+    "url": "https://github.com/smartcuc/ioBroker.sharegy.git"
   },
   "engines": {
     "node": ">=16.0.0"
