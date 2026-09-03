@@ -51,7 +51,7 @@
     "protocol": "wss",
     "wsUrl": "wss://sharegy.de/ws/energy/",
     "host": "sharegy.de",
-    "port": 443,
+    "port": 8883,
     "path": "/mqtt",
     "mqttToken": "",
     "mqttUsername": "",
