@@ -33,17 +33,15 @@ iobroker url https://github.com/smartcuc/ioBroker.sharegy
 The adapter settings provide 4 clear tabs:
 
 ### 1. 🔌 Verbindung & Zugangsdaten (Connection)
-- **Verbindungsprotokoll**: `WSS` (WebSocket Secure via Port 443 - Standard) oder `MQTTS` (Port 8883)
-  > [!NOTE]
-  > Unverschlüsseltes MQTT (Port 1883) wird aus Sicherheitsgründen **nicht** unterstützt. Die Verbindung erfolgt standardmäßig vollverschlüsselt über den HTTPS-Port 443 (`wss://sharegy.de/mqtt`).
-- **Server Host**: `sharegy.de` (Port: `443`, Pfad: `/mqtt`)
-- **Home Token**: Enter your personal Home Token from Sharegy (*Settings -> MQTT / Integrations*).
-- **Mindestsendeintervall**: Throttling interval in seconds (default: 5s) to avoid unnecessary network load.
+- **Verbindungsprotokoll**: `WSS` (WebSocket Secure via Port 443 - Standard & Empfohlen)
+  - **WebSocket URL**: Kopiere deine vollständige WebSocket-URL mit 1 Klick aus deinen Sharegy-Schnittstellen (`wss://sharegy.de/ws/energy/<TOKEN>/`).
+  - *Alle MQTT-spezifischen Felder (Host, Port, User, Passwort) sind bei WSS automatisch ausgeblendet.*
+- **Mindestsendeintervall**: Einstellbare Drosselung (Standard: 5s), um ioBroker und Netzwerk zu schonen.
 - **Offline-Pufferung (Ringpuffer)**: Zwischenspeichern von Messdaten bei Internet-/Routerausfall (Standard: 5.000 Punkte). Nach Wiederverbindung werden alle Datenpunkte mit historisch exaktem Zeitstempel nachgeliefert (Status einsehbar unter `sharegy.0.info.bufferedCount`).
 
 ### 2. ☀️ EMS & Kern-Zähler (EMS Telemetry)
 Select the central ioBroker states for your energy balance:
-- **PV-Erzeugung Leistung**: e.g., `sungrow.0.total_pv_power` or `shelly.0.balkonkraftwerk.power` (W)
+- **PV-Erzeugung Leistung**: e.g., `sungrow.0.total_pv_power` oder `shelly.0.balkonkraftwerk.power` (W)
 - **Netzleistung**: e.g., `smartmeter.0.1-0:16_7_0__255.value` (W)
 - **Netz-Vorzeichen**: Choose whether positive means import or feed-in.
 - **Netzbezug / Einspeisung Zählerstände**: e.g., `smartmeter.0.1-0:1_8_0__255.value` (kWh)
@@ -51,13 +49,13 @@ Select the central ioBroker states for your energy balance:
 - **Hausverbrauch**: (optional, calculated automatically if omitted)
 
 ### 3. 🌡️ Sonstige Geräte & Sensoren (Custom Devices)
-Add any individual sensors and sub-meters:
-| ioBroker Object ID | Sharegy Identifier | Rolle | Messgröße | Einheit | Skalierung |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| `sonoff.0.bwwp.temperature` | `bwwp_temp` | 🌡️ Sensor | Temperatur | `°C` | `1` |
-| `shelly.0.bwwp.Relay0.Power` | `bwwp_power` | 🔌 Verbraucher | Leistung | `W` | `1` |
-| `zigbee.0.living_room.temp` | `living_temp` | 🌡️ Sensor | Temperatur | `°C` | `1` |
-| `modbus.0.heatpump.power` | `heatpump` | 🔌 Verbraucher | Leistung | `W` | `1` |
+Füge beliebig viele individuelle Geräte hinzu. Die Einheit (`°C`, `W`, `%`, `V`, `A` etc.) wird **automatisch** anhand der Messgröße zugeordnet:
+| ioBroker Object ID | Sharegy Identifier | Rolle | Messgröße (Einheit automatisch) | Skalierung |
+| :--- | :--- | :--- | :--- | :--- |
+| `sonoff.0.bwwp.temperature` | `bwwp_temp` | 🌡️ Sensor | Temperatur (`°C`) | `1` |
+| `shelly.0.bwwp.Relay0.Power` | `bwwp_power` | 🔌 Verbraucher | Leistung (`W`) | `1` |
+| `zigbee.0.living_room.temp` | `living_temp` | 🌡️ Sensor | Temperatur (`°C`) | `1` |
+| `modbus.0.heatpump.power` | `heatpump` | 🔌 Verbraucher | Leistung (`W`) | `1` |
 
 ### 4. 🎛️ Rückkanal & Lastmanagement (Bidirectional Control)
 Map Sharegy control commands to ioBroker states:

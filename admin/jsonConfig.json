@@ -8,70 +8,86 @@
       "items": {
         "headerConn": {
           "type": "header",
-          "text": "Sichere Sharegy Cloud-Verbindung (WSS)"
+          "text": "Sichere Sharegy Plattform-Verbindung"
         },
         "infoConn": {
           "type": "staticText",
-          "text": "Die Verbindung erfolgt standardmäßig sicher und verschlüsselt per WebSocket Secure (WSS über HTTPS-Port 443). Unverschlüsseltes MQTT (Port 1883) wird aus Sicherheitsgründen nicht unterstützt."
+          "text": "Die Verbindung erfolgt standardmäßig sicher und verschlüsselt per WebSocket Secure (WSS über Port 443). Kopiere dazu einfach deine persönliche WebSocket-URL aus der Sharegy Web-App (unter Einstellungen -> Schnittstellen)."
         },
         "protocol": {
           "type": "select",
           "label": "Verbindungsprotokoll",
           "default": "wss",
           "options": [
-            { "value": "wss", "label": "🔒 WSS (WebSocket Secure via Port 443 - Standard & Firewall-sicher)" },
+            { "value": "wss", "label": "🔒 WSS (WebSocket Secure via Port 443 - Empfohlen & Firewall-sicher)" },
             { "value": "mqtts", "label": "🛡️ MQTTS (MQTT über TLS via Port 8883)" }
           ],
           "sm": 12,
-          "md": 6
+          "md": 12
+        },
+        "dividerConnWss": {
+          "type": "divider",
+          "hidden": "data.protocol !== 'wss'"
+        },
+        "wsUrl": {
+          "type": "text",
+          "label": "WebSocket URL (Copy & Paste aus Sharegy Schnittstellen)",
+          "default": "wss://sharegy.de/ws/energy/",
+          "placeholder": "wss://sharegy.de/ws/energy/48f9d3b1-7a2e-4b9c-8512-32a10e7b89f0/",
+          "help": "Kopiere die vollständige WebSocket-URL mit 1 Klick aus deinen Sharegy-Schnittstellen",
+          "hidden": "data.protocol !== 'wss'",
+          "sm": 12,
+          "md": 12
+        },
+        "dividerConnMqtt": {
+          "type": "divider",
+          "hidden": "data.protocol !== 'mqtts'"
         },
         "host": {
           "type": "text",
-          "label": "Server Host",
+          "label": "MQTT Server Host",
           "default": "sharegy.de",
+          "hidden": "data.protocol !== 'mqtts'",
           "sm": 12,
-          "md": 4
+          "md": 8
         },
         "port": {
           "type": "number",
           "label": "Port",
-          "default": 443,
+          "default": 8883,
           "min": 1,
           "max": 65535,
-          "sm": 12,
-          "md": 2
-        },
-        "path": {
-          "type": "text",
-          "label": "WebSocket Pfad (nur bei WSS)",
-          "default": "/mqtt",
+          "hidden": "data.protocol !== 'mqtts'",
           "sm": 12,
           "md": 4
-        },
-        "dividerConn1": {
-          "type": "divider"
         },
         "mqttToken": {
           "type": "text",
           "label": "Home Token (aus Sharegy Einstellungen)",
           "default": "",
           "help": "z. B. 48f9d3b1-7a2e-4b9c-8512-32a10e7b89f0",
+          "hidden": "data.protocol !== 'mqtts'",
           "sm": 12,
-          "md": 8
+          "md": 12
         },
         "mqttUsername": {
           "type": "text",
           "label": "Benutzername (optional)",
           "default": "",
+          "hidden": "data.protocol !== 'mqtts'",
           "sm": 12,
-          "md": 4
+          "md": 6
         },
         "mqttPassword": {
           "type": "password",
           "label": "Passwort (optional)",
           "default": "",
+          "hidden": "data.protocol !== 'mqtts'",
           "sm": 12,
-          "md": 4
+          "md": 6
+        },
+        "dividerGeneral": {
+          "type": "divider"
         },
         "minSendIntervalSec": {
           "type": "number",
@@ -82,9 +98,6 @@
           "help": "Drosselung bei hochfrequenten ioBroker-Updates",
           "sm": 12,
           "md": 4
-        },
-        "dividerBuffer": {
-          "type": "divider"
         },
         "bufferOfflineData": {
           "type": "checkbox",
@@ -199,7 +212,7 @@
         },
         "infoCustom": {
           "type": "staticText",
-          "text": "Füge hier beliebige ioBroker-Objekte hinzu (z. B. Brauchwasserwärmepumpe, Raumtemperatursensoren, Wallbox, Steckdosen), die als eigenständige Geräte in Sharegy erscheinen sollen."
+          "text": "Füge hier beliebige ioBroker-Objekte hinzu (z. B. Brauchwasserwärmepumpe, Raumtemperatursensoren, Wallbox, Steckdosen), die als eigenständige Geräte in Sharegy erscheinen sollen. Die physikalische Einheit (°C, W, %, V etc.) wird automatisch anhand der Messgröße zugeordnet."
         },
         "customDevices": {
           "type": "table",
@@ -216,7 +229,7 @@
               "type": "objectId",
               "attr": "id",
               "title": "ioBroker Datenpunkt (Objekt-ID)",
-              "width": "260px"
+              "width": "280px"
             },
             {
               "type": "text",
@@ -224,7 +237,7 @@
               "title": "Sharegy Gerätekennung",
               "default": "device_1",
               "help": "z. B. bwwp_temp, bwwp_power, heatpump, wallbox",
-              "width": "160px"
+              "width": "180px"
             },
             {
               "type": "select",
@@ -237,12 +250,12 @@
                 { "value": "producer", "label": "☀️ Erzeuger" },
                 { "value": "battery", "label": "🔋 Speicher" }
               ],
-              "width": "130px"
+              "width": "140px"
             },
             {
               "type": "select",
               "attr": "metric",
-              "title": "Messgröße",
+              "title": "Messgröße (Einheit automatisch)",
               "default": "temperature",
               "options": [
                 { "value": "temperature", "label": "Temperatur (°C)" },
@@ -251,21 +264,15 @@
                 { "value": "voltage", "label": "Spannung (V)" },
                 { "value": "current", "label": "Stromstärke (A)" },
                 { "value": "energy", "label": "Energie / Zählerstand (kWh)" },
-                { "value": "humidity", "label": "Luftfeuchtigkeit (%)" }
+                { "value": "humidity", "label": "Luftfeuchtigkeit (%)" },
+                { "value": "frequency", "label": "Frequenz (Hz)" }
               ],
-              "width": "150px"
-            },
-            {
-              "type": "text",
-              "attr": "unit",
-              "title": "Einheit",
-              "default": "°C",
-              "width": "80px"
+              "width": "180px"
             },
             {
               "type": "number",
               "attr": "scale",
-              "title": "Skalierungsfaktor",
+              "title": "Skalierung",
               "default": 1,
               "help": "z. B. 1000 bei kW -> W oder 0.001 bei Wh -> kWh",
               "width": "90px"

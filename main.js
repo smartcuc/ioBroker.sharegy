@@ -9,6 +9,20 @@
 const utils = require("@iobroker/adapter-core");
 const mqtt = require("mqtt");
 
+const CANONICAL_METRIC_UNITS = {
+    temperature: "°C",
+    power: "W",
+    soc: "%",
+    voltage: "V",
+    current: "A",
+    energy: "kWh",
+    humidity: "%",
+    frequency: "Hz",
+    pressure: "hPa",
+    co2: "ppm",
+    heat_power: "kW",
+};
+
 class SharegyAdapter extends utils.Adapter {
 
     constructor(options = {}) {
@@ -31,6 +45,22 @@ class SharegyAdapter extends utils.Adapter {
     }
 
     /**
+     * Extracts or resolves the effective Sharegy Home Token
+     */
+    getEffectiveToken() {
+        const proto = (this.config.protocol || "wss").toLowerCase();
+        if (proto === "wss" && this.config.wsUrl) {
+            const urlStr = this.config.wsUrl.trim();
+            // Try to extract token from URL (e.g. wss://sharegy.de/ws/energy/<token>/)
+            const match = urlStr.match(/\/ws\/energy\/([a-zA-Z0-9_-]+)/);
+            if (match && match[1]) {
+                return match[1].trim();
+            }
+        }
+        return (this.config.mqttToken || "").trim();
+    }
+
+    /**
      * Is called when databases are connected and adapter received configuration.
      */
     async onReady() {
@@ -40,13 +70,14 @@ class SharegyAdapter extends utils.Adapter {
         await this.setStateAsync("info.connection", false, true);
         await this.setStateAsync("info.bufferedCount", 0, true);
 
+        const token = this.getEffectiveToken();
         // Validate Token
-        if (!this.config.mqttToken || this.config.mqttToken.trim() === "") {
-            this.log.error("No Sharegy Home Token configured! Please enter your token in the adapter settings.");
+        if (!token) {
+            this.log.error("No Sharegy Home Token or WebSocket URL configured! Please paste your URL or token in the adapter settings.");
             return;
         }
 
-        // Initialize MQTT Connection
+        // Initialize Connection
         this.connectMqtt();
 
         // Subscribe to configured EMS and Custom Device states
@@ -58,19 +89,22 @@ class SharegyAdapter extends utils.Adapter {
      */
     connectMqtt() {
         const proto = (this.config.protocol || "wss").toLowerCase();
-        const host = (this.config.host || "sharegy.de").trim();
-        const port = Number(this.config.port) || (proto === "wss" ? 443 : 8883);
-        const path = (this.config.path || "/mqtt").trim();
+        const token = this.getEffectiveToken();
 
         let url = "";
         if (proto === "wss") {
-            const cleanPath = path.startsWith("/") ? path : `/${path}`;
-            url = `wss://${host}:${port}${cleanPath}`;
+            if (this.config.wsUrl && this.config.wsUrl.trim().startsWith("wss://")) {
+                url = this.config.wsUrl.trim();
+                if (!url.endsWith("/")) url += "/";
+            } else {
+                url = `wss://sharegy.de:443/ws/energy/${token}/`;
+            }
         } else {
+            const host = (this.config.host || "sharegy.de").trim();
+            const port = Number(this.config.port) || 8883;
             url = `mqtts://${host}:${port}`;
         }
 
-        const token = this.config.mqttToken.trim();
         const clientId = `iobroker_sharegy_${this.instance}_${Math.random().toString(16).substring(2, 8)}`;
 
         const options = {
@@ -193,7 +227,7 @@ class SharegyAdapter extends utils.Adapter {
 
         // Check if this state belongs to EMS or Custom Devices
         const payloadsToSend = [];
-        const token = (this.config.mqttToken || "").trim();
+        const token = this.getEffectiveToken();
         if (!token) return;
 
         // A) EMS Checks
@@ -276,11 +310,13 @@ class SharegyAdapter extends utils.Adapter {
                     const identifier = (item.identifier || "device_1").trim();
                     const scale = Number(item.scale) || 1;
                     const valFloat = Number(state.val) * scale;
+                    const metric = item.metric || "value";
+                    const unit = CANONICAL_METRIC_UNITS[metric] || item.unit || "W";
 
                     payloadsToSend.push({
                         identifier,
-                        metric: item.metric || "value",
-                        unit: item.unit || "W",
+                        metric,
+                        unit,
                         role: item.role || "sensor",
                         value: valFloat,
                     });
@@ -315,7 +351,7 @@ class SharegyAdapter extends utils.Adapter {
     flushPendingUpdates() {
         this.throttleTimer = null;
         const isConnected = this.mqttClient && this.mqttClient.connected;
-        const token = (this.config.mqttToken || "").trim();
+        const token = this.getEffectiveToken();
         const nowSec = Math.floor(Date.now() / 1000);
         const shouldBuffer = this.config.bufferOfflineData !== false;
         const maxBuffer = Math.max(100, Number(this.config.maxBufferSize) || 5000);

@@ -49,6 +49,7 @@
   },
   "native": {
     "protocol": "wss",
+    "wsUrl": "wss://sharegy.de/ws/energy/",
     "host": "sharegy.de",
     "port": 443,
     "path": "/mqtt",
