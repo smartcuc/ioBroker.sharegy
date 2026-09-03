@@ -262,6 +262,18 @@ class SharegyAdapter extends utils.Adapter {
             }
         }
 
+        // 3. Bidirectional Control & Feedback Objects (Rückkanal Ist-Zustände)
+        if (Array.isArray(this.config.controlObjects)) {
+            for (const item of this.config.controlObjects) {
+                if (item && item.enabled !== false && item.targetId && item.targetId.trim() !== "") {
+                    const cleanId = item.targetId.trim();
+                    this.subscribedStateIds.add(cleanId);
+                    this.subscribeForeignStates(cleanId);
+                    this.log.debug(`Subscribed to Control Object feedback state: ${cleanId} -> ${item.identifier}`);
+                }
+            }
+        }
+
         this.log.info(`Monitoring ${this.subscribedStateIds.size} ioBroker states for Sharegy.`);
     }
 
@@ -372,6 +384,28 @@ class SharegyAdapter extends utils.Adapter {
             }
         }
 
+        // C) Control Objects Feedback (Ist-Zustand Rückmeldung für Relais & Schalter)
+        if (Array.isArray(this.config.controlObjects)) {
+            for (const item of this.config.controlObjects) {
+                if (item && item.enabled !== false && item.targetId && item.targetId.trim() === id) {
+                    const identifier = (item.identifier || "switch_1").trim();
+                    let boolVal = (state.val === true || state.val === "true" || state.val === 1 || state.val === "1" || state.val === "ON" || state.val === "on");
+                    if (item.invert) boolVal = !boolVal;
+
+                    payloadsToSend.push({
+                        identifier,
+                        state: boolVal,
+                        relay_state: boolVal,
+                        val: boolVal,
+                        value: typeof state.val === "number" ? state.val : (boolVal ? 1 : 0),
+                        role: "consumer",
+                        metric: "relay_state",
+                    });
+                    this.log.debug(`Control feedback for [${identifier}]: state=${boolVal} (from ${id})`);
+                }
+            }
+        }
+
         // Send all resolved payloads (with throttling)
         for (const p of payloadsToSend) {
             this.enqueueTelemetry(p);
@@ -410,8 +444,10 @@ class SharegyAdapter extends utils.Adapter {
                 for (const [key, t] of this.pendingUpdates.entries()) {
                     const topic = `h/${token}/${t.identifier}`;
                     const payload = {
-                        val: t.value,
-                        value: t.value,
+                        val: t.value !== undefined ? t.value : t.val,
+                        value: t.value !== undefined ? t.value : t.val,
+                        state: t.state,
+                        relay_state: t.relay_state,
                         unit: t.unit,
                         metric: t.metric,
                         role: t.role,
@@ -442,8 +478,10 @@ class SharegyAdapter extends utils.Adapter {
         for (const [key, t] of this.pendingUpdates.entries()) {
             const topic = `h/${token}/${t.identifier}`;
             const payload = {
-                val: t.value,
-                value: t.value,
+                val: t.value !== undefined ? t.value : t.val,
+                value: t.value !== undefined ? t.value : t.val,
+                state: t.state,
+                relay_state: t.relay_state,
                 unit: t.unit,
                 metric: t.metric,
                 role: t.role,
