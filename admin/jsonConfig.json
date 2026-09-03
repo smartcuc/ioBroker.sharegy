@@ -11,34 +11,45 @@
           "items": {
             "headerConn": {
               "type": "header",
-              "text": "Sharegy Plattform-Verbindung"
+              "text": "Sichere Sharegy Cloud-Verbindung (WSS)"
             },
             "infoConn": {
               "type": "staticText",
-              "text": "Trage hier deine Sharegy Zugangsdaten ein. Den Home-Token findest du in deiner Sharegy Web-App unter Einstellungen -> MQTT / Integrationen."
+              "text": "Die Verbindung erfolgt standardmäßig sicher und verschlüsselt per WebSocket Secure (WSS über HTTPS-Port 443). Unverschlüsseltes MQTT (Port 1883) wird aus Sicherheitsgründen nicht unterstützt."
             },
-            "mqttHost": {
-              "type": "text",
-              "label": "MQTT Host",
-              "default": "sharegy.de",
+            "protocol": {
+              "type": "select",
+              "label": "Verbindungsprotokoll",
+              "default": "wss",
+              "options": [
+                { "value": "wss", "label": "🔒 WSS (WebSocket Secure via Port 443 - Standard & Firewall-sicher)" },
+                { "value": "mqtts", "label": "🛡️ MQTTS (MQTT über TLS via Port 8883)" }
+              ],
               "sm": 12,
               "md": 6
             },
-            "mqttPort": {
+            "host": {
+              "type": "text",
+              "label": "Server Host",
+              "default": "sharegy.de",
+              "sm": 12,
+              "md": 4
+            },
+            "port": {
               "type": "number",
-              "label": "MQTT Port",
-              "default": 1883,
+              "label": "Port",
+              "default": 443,
               "min": 1,
               "max": 65535,
               "sm": 12,
-              "md": 3
+              "md": 2
             },
-            "mqttUseSsl": {
-              "type": "checkbox",
-              "label": "SSL / TLS verschlüsselt (Port 8883)",
-              "default": false,
+            "path": {
+              "type": "text",
+              "label": "WebSocket Pfad (nur bei WSS)",
+              "default": "/mqtt",
               "sm": 12,
-              "md": 3
+              "md": 4
             },
             "dividerConn1": {
               "type": "divider"
@@ -49,21 +60,21 @@
               "default": "",
               "help": "z. B. 48f9d3b1-7a2e-4b9c-8512-32a10e7b89f0",
               "sm": 12,
-              "md": 12
+              "md": 8
             },
             "mqttUsername": {
               "type": "text",
-              "label": "MQTT Benutzername (optional)",
+              "label": "Benutzername (optional)",
               "default": "",
               "sm": 12,
-              "md": 6
+              "md": 4
             },
             "mqttPassword": {
               "type": "password",
-              "label": "MQTT Passwort (optional)",
+              "label": "Passwort (optional)",
               "default": "",
               "sm": 12,
-              "md": 6
+              "md": 4
             },
             "minSendIntervalSec": {
               "type": "number",

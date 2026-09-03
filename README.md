@@ -34,11 +34,13 @@ iobroker upload sharegy
 ---
 
 ## ⚙️ Configuration
-
 The adapter settings provide 4 clear tabs:
 
 ### 1. 🔌 Verbindung & Zugangsdaten (Connection)
-- **MQTT Host**: `sharegy.de` (Port: `1883` or `8883` with SSL)
+- **Verbindungsprotokoll**: `WSS` (WebSocket Secure via Port 443 - Standard) oder `MQTTS` (Port 8883)
+  > [!NOTE]
+  > Unverschlüsseltes MQTT (Port 1883) wird aus Sicherheitsgründen **nicht** unterstützt. Die Verbindung erfolgt standardmäßig vollverschlüsselt über den HTTPS-Port 443 (`wss://sharegy.de/mqtt`).
+- **Server Host**: `sharegy.de` (Port: `443`, Pfad: `/mqtt`)
 - **Home Token**: Enter your personal Home Token from Sharegy (*Settings -> MQTT / Integrations*).
 - **Mindestsendeintervall**: Throttling interval in seconds (default: 5s) to avoid unnecessary network load.
 

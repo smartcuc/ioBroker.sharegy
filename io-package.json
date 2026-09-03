@@ -48,9 +48,10 @@
     "installedFrom": "https://github.com/smartcuc/eswes"
   },
   "native": {
-    "mqttHost": "sharegy.de",
-    "mqttPort": 1883,
-    "mqttUseSsl": false,
+    "protocol": "wss",
+    "host": "sharegy.de",
+    "port": 443,
+    "path": "/mqtt",
     "mqttToken": "",
     "mqttUsername": "",
     "mqttPassword": "",

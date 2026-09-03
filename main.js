@@ -51,13 +51,21 @@ class SharegyAdapter extends utils.Adapter {
     }
 
     /**
-     * Connect to the Sharegy MQTT Broker
+     * Connect to the Sharegy Server via WSS (Secure WebSocket) or MQTTS
      */
     connectMqtt() {
-        const host = (this.config.mqttHost || "sharegy.de").trim();
-        const port = Number(this.config.mqttPort) || (this.config.mqttUseSsl ? 8883 : 1883);
-        const protocol = this.config.mqttUseSsl ? "mqtts" : "mqtt";
-        const url = `${protocol}://${host}:${port}`;
+        const proto = (this.config.protocol || "wss").toLowerCase();
+        const host = (this.config.host || "sharegy.de").trim();
+        const port = Number(this.config.port) || (proto === "wss" ? 443 : 8883);
+        const path = (this.config.path || "/mqtt").trim();
+
+        let url = "";
+        if (proto === "wss") {
+            const cleanPath = path.startsWith("/") ? path : `/${path}`;
+            url = `wss://${host}:${port}${cleanPath}`;
+        } else {
+            url = `mqtts://${host}:${port}`;
+        }
 
         const token = this.config.mqttToken.trim();
         const clientId = `iobroker_sharegy_${this.instance}_${Math.random().toString(16).substring(2, 8)}`;
@@ -67,6 +75,7 @@ class SharegyAdapter extends utils.Adapter {
             clean: true,
             connectTimeout: 10000,
             reconnectPeriod: 5000,
+            rejectUnauthorized: true,
         };
 
         if (this.config.mqttUsername) {
@@ -76,7 +85,7 @@ class SharegyAdapter extends utils.Adapter {
             options.password = this.config.mqttPassword;
         }
 
-        this.log.info(`Connecting to Sharegy MQTT Broker at ${url} (ClientID: ${clientId})...`);
+        this.log.info(`Connecting to Sharegy via ${proto.toUpperCase()} at ${url} (ClientID: ${clientId})...`);
 
         try {
             this.mqttClient = mqtt.connect(url, options);
