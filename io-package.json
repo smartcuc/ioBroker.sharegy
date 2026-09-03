@@ -1,0 +1,127 @@
+{
+  "common": {
+    "name": "sharegy",
+    "version": "1.0.0",
+    "news": {
+      "1.0.0": {
+        "en": "Initial release of official Sharegy adapter with EMS, custom sensors and bidirectional load control",
+        "de": "Erstveröffentlichung des offiziellen Sharegy Adapters mit EMS, Sensoren und Lastmanagement-Rückkanal"
+      }
+    },
+    "title": "Sharegy Energy Management",
+    "titleLang": {
+      "en": "Sharegy Energy Management",
+      "de": "Sharegy Energiemanagement"
+    },
+    "desc": {
+      "en": "Connects ioBroker with the Sharegy Energy Management Platform (EMS, PV, Battery, Heatpump, Wallbox & Dynamic Tariffs)",
+      "de": "Verbindet ioBroker mit der Sharegy Energiemanagement-Plattform (EMS, PV, Speicher, Wärmepumpe, Wallbox & dynamische Tarife)"
+    },
+    "authors": [
+      "Sharegy Team <info@sharegy.de>"
+    ],
+    "keywords": [
+      "sharegy",
+      "energy",
+      "ems",
+      "photovoltaic",
+      "heatpump",
+      "battery",
+      "bwwp",
+      "wallbox"
+    ],
+    "license": "MIT",
+    "platform": "Javascript/Node.js",
+    "main": "main.js",
+    "icon": "sharegy.png",
+    "enabled": true,
+    "extIcon": "https://sharegy.de/favicon.ico",
+    "type": "energy",
+    "tier": 2,
+    "mode": "daemon",
+    "compact": true,
+    "connectionType": "cloud",
+    "dataSource": "poll",
+    "adminUI": {
+      "config": "json"
+    },
+    "installedFrom": "https://github.com/smartcuc/eswes"
+  },
+  "native": {
+    "mqttHost": "sharegy.de",
+    "mqttPort": 1883,
+    "mqttUseSsl": false,
+    "mqttToken": "",
+    "mqttUsername": "",
+    "mqttPassword": "",
+    "minSendIntervalSec": 5,
+    "pvPowerId": "",
+    "gridPowerId": "",
+    "gridPowerSign": "pos_import",
+    "gridImportId": "",
+    "gridExportId": "",
+    "batteryPowerId": "",
+    "batterySocId": "",
+    "houseConsumptionId": "",
+    "customDevices": [],
+    "controlObjects": []
+  },
+  "objects": [],
+  "instanceObjects": [
+    {
+      "_id": "info",
+      "type": "channel",
+      "common": {
+        "name": "Information"
+      },
+      "native": {}
+    },
+    {
+      "_id": "info.connection",
+      "type": "state",
+      "common": {
+        "role": "indicator.connected",
+        "name": "Connected to Sharegy MQTT Broker",
+        "type": "boolean",
+        "read": true,
+        "write": false,
+        "def": false
+      },
+      "native": {}
+    },
+    {
+      "_id": "info.lastSync",
+      "type": "state",
+      "common": {
+        "role": "date",
+        "name": "Last Telemetry Sync",
+        "type": "string",
+        "read": true,
+        "write": false,
+        "def": ""
+      },
+      "native": {}
+    },
+    {
+      "_id": "control",
+      "type": "channel",
+      "common": {
+        "name": "Sharegy Control Commands"
+      },
+      "native": {}
+    },
+    {
+      "_id": "control.lastCommand",
+      "type": "state",
+      "common": {
+        "role": "json",
+        "name": "Last received control command from Sharegy",
+        "type": "string",
+        "read": true,
+        "write": false,
+        "def": "{}"
+      },
+      "native": {}
+    }
+  ]
+}

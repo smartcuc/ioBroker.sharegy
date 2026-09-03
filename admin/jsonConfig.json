@@ -1,0 +1,314 @@
+{
+  "i18n": true,
+  "type": "panel",
+  "items": {
+    "mainTabs": {
+      "type": "tabs",
+      "items": {
+        "tabConnection": {
+          "type": "panel",
+          "label": "🔌 Verbindung & Zugangsdaten",
+          "items": {
+            "headerConn": {
+              "type": "header",
+              "text": "Sharegy Plattform-Verbindung"
+            },
+            "infoConn": {
+              "type": "staticText",
+              "text": "Trage hier deine Sharegy Zugangsdaten ein. Den Home-Token findest du in deiner Sharegy Web-App unter Einstellungen -> MQTT / Integrationen."
+            },
+            "mqttHost": {
+              "type": "text",
+              "label": "MQTT Host",
+              "default": "sharegy.de",
+              "sm": 12,
+              "md": 6
+            },
+            "mqttPort": {
+              "type": "number",
+              "label": "MQTT Port",
+              "default": 1883,
+              "min": 1,
+              "max": 65535,
+              "sm": 12,
+              "md": 3
+            },
+            "mqttUseSsl": {
+              "type": "checkbox",
+              "label": "SSL / TLS verschlüsselt (Port 8883)",
+              "default": false,
+              "sm": 12,
+              "md": 3
+            },
+            "dividerConn1": {
+              "type": "divider"
+            },
+            "mqttToken": {
+              "type": "text",
+              "label": "Home Token (aus Sharegy Einstellungen)",
+              "default": "",
+              "help": "z. B. 48f9d3b1-7a2e-4b9c-8512-32a10e7b89f0",
+              "sm": 12,
+              "md": 12
+            },
+            "mqttUsername": {
+              "type": "text",
+              "label": "MQTT Benutzername (optional)",
+              "default": "",
+              "sm": 12,
+              "md": 6
+            },
+            "mqttPassword": {
+              "type": "password",
+              "label": "MQTT Passwort (optional)",
+              "default": "",
+              "sm": 12,
+              "md": 6
+            },
+            "minSendIntervalSec": {
+              "type": "number",
+              "label": "Mindestsendeintervall (Sekunden)",
+              "default": 5,
+              "min": 1,
+              "max": 300,
+              "help": "Drosselung bei hochfrequenten ioBroker-Updates",
+              "sm": 12,
+              "md": 4
+            }
+          }
+        },
+        "tabEms": {
+          "type": "panel",
+          "label": "☀️ EMS & Kern-Zähler",
+          "items": {
+            "headerEms": {
+              "type": "header",
+              "text": "Energiemanagement-System (EMS) Hauptdatenpunkte"
+            },
+            "infoEms": {
+              "type": "staticText",
+              "text": "Wähle hier die zentralen Datenpunkte deiner PV-Anlage, des Netzanschlusses und deines Batteriespeichers aus. Diese speisen das Sharegy Live-Flussdiagramm und die Energiebilanz."
+            },
+            "pvPowerId": {
+              "type": "objectId",
+              "label": "PV-Erzeugung Leistung (W / kW)",
+              "help": "z. B. sungrow.0.total_pv_power oder shelly.0.balkonkraftwerk.power",
+              "sm": 12,
+              "md": 8
+            },
+            "gridPowerId": {
+              "type": "objectId",
+              "label": "Netzleistung (W / kW)",
+              "help": "z. B. smartmeter.0.1-0:16_7_0__255.value oder modbus.0.active_power",
+              "sm": 12,
+              "md": 8
+            },
+            "gridPowerSign": {
+              "type": "select",
+              "label": "Netz-Vorzeichenlogik",
+              "default": "pos_import",
+              "options": [
+                {
+                  "value": "pos_import",
+                  "label": "+ positiv = Netzbezug / - negativ = Einspeisung"
+                },
+                {
+                  "value": "pos_export",
+                  "label": "+ positiv = Einspeisung / - negativ = Netzbezug"
+                }
+              ],
+              "sm": 12,
+              "md": 4
+            },
+            "gridImportId": {
+              "type": "objectId",
+              "label": "Netzbezug Zählerstand (kWh)",
+              "help": "z. B. smartmeter.0.1-0:1_8_0__255.value",
+              "sm": 12,
+              "md": 6
+            },
+            "gridExportId": {
+              "type": "objectId",
+              "label": "Einspeisung Zählerstand (kWh)",
+              "help": "z. B. smartmeter.0.1-0:2_8_0__255.value",
+              "sm": 12,
+              "md": 6
+            },
+            "dividerEmsBat": {
+              "type": "divider"
+            },
+            "batteryPowerId": {
+              "type": "objectId",
+              "label": "Batteriespeicher Leistung (W / kW)",
+              "help": "+ positiv = Laden / - negativ = Entladen",
+              "sm": 12,
+              "md": 6
+            },
+            "batterySocId": {
+              "type": "objectId",
+              "label": "Batterie Ladestand / SoC (%)",
+              "help": "z. B. sungrow.0.battery_level oder victron.0.system.soc",
+              "sm": 12,
+              "md": 6
+            },
+            "houseConsumptionId": {
+              "type": "objectId",
+              "label": "Gesamter Hausverbrauch Leistung (W / kW, optional)",
+              "help": "Falls leer, berechnet Sharegy den Hausverbrauch automatisch aus Erzeugung, Netz und Speicher.",
+              "sm": 12,
+              "md": 12
+            }
+          }
+        },
+        "tabCustomDevices": {
+          "type": "panel",
+          "label": "🌡️ Sonstige Geräte & Sensoren",
+          "items": {
+            "headerCustom": {
+              "type": "header",
+              "text": "Individuelle Geräte, Wärmepumpen, BWWP & Sensoren"
+            },
+            "infoCustom": {
+              "type": "staticText",
+              "text": "Füge hier beliebige ioBroker-Objekte hinzu (z. B. Brauchwasserwärmepumpe, Raumtemperatursensoren, Wallbox, Steckdosen), die als eigenständige Geräte in Sharegy erscheinen sollen."
+            },
+            "customDevices": {
+              "type": "table",
+              "label": "Geräte- und Sensor-Mapping",
+              "items": [
+                {
+                  "type": "checkbox",
+                  "attr": "enabled",
+                  "title": "Aktiv",
+                  "default": true,
+                  "width": "60px"
+                },
+                {
+                  "type": "objectId",
+                  "attr": "id",
+                  "title": "ioBroker Datenpunkt (Objekt-ID)",
+                  "width": "260px"
+                },
+                {
+                  "type": "text",
+                  "attr": "identifier",
+                  "title": "Sharegy Gerätekennung",
+                  "default": "device_1",
+                  "help": "z. B. bwwp_temp, bwwp_power, heatpump, wallbox",
+                  "width": "160px"
+                },
+                {
+                  "type": "select",
+                  "attr": "role",
+                  "title": "Funktion / Rolle",
+                  "default": "sensor",
+                  "options": [
+                    { "value": "sensor", "label": "🌡️ Sensor" },
+                    { "value": "consumer", "label": "🔌 Verbraucher" },
+                    { "value": "producer", "label": "☀️ Erzeuger" },
+                    { "value": "battery", "label": "🔋 Speicher" }
+                  ],
+                  "width": "130px"
+                },
+                {
+                  "type": "select",
+                  "attr": "metric",
+                  "title": "Messgröße",
+                  "default": "temperature",
+                  "options": [
+                    { "value": "temperature", "label": "Temperatur (°C)" },
+                    { "value": "power", "label": "Leistung (W)" },
+                    { "value": "soc", "label": "Ladestand (%)" },
+                    { "value": "voltage", "label": "Spannung (V)" },
+                    { "value": "current", "label": "Stromstärke (A)" },
+                    { "value": "energy", "label": "Energie / Zählerstand (kWh)" },
+                    { "value": "humidity", "label": "Luftfeuchtigkeit (%)" }
+                  ],
+                  "width": "150px"
+                },
+                {
+                  "type": "text",
+                  "attr": "unit",
+                  "title": "Einheit",
+                  "default": "°C",
+                  "width": "80px"
+                },
+                {
+                  "type": "number",
+                  "attr": "scale",
+                  "title": "Skalierungsfaktor",
+                  "default": 1,
+                  "help": "z. B. 1000 bei kW -> W oder 0.001 bei Wh -> kWh",
+                  "width": "90px"
+                }
+              ]
+            }
+          }
+        },
+        "tabControl": {
+          "type": "panel",
+          "label": "🎛️ Rückkanal & Lastmanagement",
+          "items": {
+            "headerControl": {
+              "type": "header",
+              "text": "Bidirektionale Steuerung (Sharegy -> ioBroker)"
+            },
+            "infoControl": {
+              "type": "staticText",
+              "text": "Hier kannst du festlegen, welche Sharegy-Schaltbefehle und Lastmanagement-Sollwerte (z. B. BWWP SG-Ready Schaltung bei PV-Überschuss, Wallbox Ladestrom oder Speicher-Sollwert) in welche ioBroker-Objekte geschrieben werden."
+            },
+            "controlObjects": {
+              "type": "table",
+              "label": "Schaltkanal- und Sollwert-Mapping",
+              "items": [
+                {
+                  "type": "checkbox",
+                  "attr": "enabled",
+                  "title": "Aktiv",
+                  "default": true,
+                  "width": "60px"
+                },
+                {
+                  "type": "text",
+                  "attr": "identifier",
+                  "title": "Sharegy Steuer-Kanal / Geräte-ID",
+                  "default": "bwwp_sg_ready",
+                  "help": "z. B. bwwp_sg_ready, wallbox_power, storage_target",
+                  "width": "180px"
+                },
+                {
+                  "type": "objectId",
+                  "attr": "targetId",
+                  "title": "Ziel-Objekt im ioBroker (zum Schalten)",
+                  "help": "z. B. shelly.0.shellyplus1#bwwp.Relay0.Switch",
+                  "width": "280px"
+                },
+                {
+                  "type": "select",
+                  "attr": "controlType",
+                  "title": "Steuer-Typ",
+                  "default": "switch_boolean",
+                  "options": [
+                    { "value": "switch_boolean", "label": "Ein / Aus Schalter (true / false)" },
+                    { "value": "power_limit_watt", "label": "Leistungsvorgabe (Watt)" },
+                    { "value": "current_limit_amper", "label": "Ladestrom (Ampere)" },
+                    { "value": "soc_target_pct", "label": "Ziel-SoC (%)" },
+                    { "value": "temperature_setpoint", "label": "Temperatur-Sollwert (°C)" }
+                  ],
+                  "width": "200px"
+                },
+                {
+                  "type": "checkbox",
+                  "attr": "invert",
+                  "title": "Invertieren (NC/NO)",
+                  "default": false,
+                  "width": "90px"
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}

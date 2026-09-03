@@ -1,0 +1,49 @@
+{
+  "name": "iobroker.sharegy",
+  "version": "1.0.0",
+  "description": "Official Sharegy Adapter: EMS Energy Management, Telemetry & Bidirectional Smart Load Control",
+  "author": {
+    "name": "Sharegy Team",
+    "email": "info@sharegy.de"
+  },
+  "homepage": "https://sharegy.de",
+  "license": "MIT",
+  "keywords": [
+    "ioBroker",
+    "sharegy",
+    "energy",
+    "smart-home",
+    "ems",
+    "photovoltaic",
+    "heatpump",
+    "battery",
+    "wallbox",
+    "sg-ready",
+    "dynamic-tariffs"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/smartcuc/eswes.git",
+    "directory": "integrations/iobroker.sharegy"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "dependencies": {
+    "@iobroker/adapter-core": "^3.1.6",
+    "mqtt": "^5.3.5"
+  },
+  "devDependencies": {
+    "@iobroker/testing": "^4.1.0"
+  },
+  "main": "main.js",
+  "files": [
+    "admin{,/!(src)/**/{*.*,.*}}",
+    "admin/*",
+    "lib/",
+    "main.js",
+    "io-package.json",
+    "LICENSE",
+    "README.md"
+  ]
+}
