@@ -56,6 +56,8 @@
     "mqttUsername": "",
     "mqttPassword": "",
     "minSendIntervalSec": 5,
+    "bufferOfflineData": true,
+    "maxBufferSize": 5000,
     "pvPowerId": "",
     "gridPowerId": "",
     "gridPowerSign": "pos_import",
@@ -87,6 +89,19 @@
         "read": true,
         "write": false,
         "def": false
+      },
+      "native": {}
+    },
+    {
+      "_id": "info.bufferedCount",
+      "type": "state",
+      "common": {
+        "role": "value",
+        "name": "Currently buffered offline telemetry packets",
+        "type": "number",
+        "read": true,
+        "write": false,
+        "def": 0
       },
       "native": {}
     },

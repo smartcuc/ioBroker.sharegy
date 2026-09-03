@@ -43,6 +43,7 @@ The adapter settings provide 4 clear tabs:
 - **Server Host**: `sharegy.de` (Port: `443`, Pfad: `/mqtt`)
 - **Home Token**: Enter your personal Home Token from Sharegy (*Settings -> MQTT / Integrations*).
 - **Mindestsendeintervall**: Throttling interval in seconds (default: 5s) to avoid unnecessary network load.
+- **Offline-Pufferung (Ringpuffer)**: Zwischenspeichern von Messdaten bei Internet-/Routerausfall (Standard: 5.000 Punkte). Nach Wiederverbindung werden alle Datenpunkte mit historisch exaktem Zeitstempel nachgeliefert (Status einsehbar unter `sharegy.0.info.bufferedCount`).
 
 ### 2. ☀️ EMS & Kern-Zähler (EMS Telemetry)
 Select the central ioBroker states for your energy balance:

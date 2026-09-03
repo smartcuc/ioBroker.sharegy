@@ -22,6 +22,8 @@ class SharegyAdapter extends utils.Adapter {
         this.lastSentTimestamps = new Map();
         this.pendingUpdates = new Map();
         this.throttleTimer = null;
+        this.offlineBuffer = [];
+        this.isDrainingBuffer = false;
 
         this.on("ready", this.onReady.bind(this));
         this.on("stateChange", this.onStateChange.bind(this));
@@ -34,8 +36,9 @@ class SharegyAdapter extends utils.Adapter {
     async onReady() {
         this.log.info("Starting Sharegy Energy Management Adapter...");
 
-        // Reset connection status
+        // Reset connection status and buffer counter
         await this.setStateAsync("info.connection", false, true);
+        await this.setStateAsync("info.bufferedCount", 0, true);
 
         // Validate Token
         if (!this.config.mqttToken || this.config.mqttToken.trim() === "") {
@@ -105,6 +108,9 @@ class SharegyAdapter extends utils.Adapter {
                         this.log.info(`Subscribed to Sharegy control channels: ${controlTopicWildcard}, ${globalControlTopic}`);
                     }
                 });
+
+                // Drain any buffered offline packets first
+                this.drainOfflineBuffer();
 
                 // Send initial snapshot of all monitored states
                 this.publishAllStates();
@@ -304,18 +310,50 @@ class SharegyAdapter extends utils.Adapter {
     }
 
     /**
-     * Flush all queued telemetry updates to MQTT
+     * Flush all queued telemetry updates to MQTT (or buffer if offline)
      */
     flushPendingUpdates() {
         this.throttleTimer = null;
-        if (!this.mqttClient || !this.mqttClient.connected) {
-            this.log.debug("MQTT not connected, skipping telemetry transmission.");
+        const isConnected = this.mqttClient && this.mqttClient.connected;
+        const token = (this.config.mqttToken || "").trim();
+        const nowSec = Math.floor(Date.now() / 1000);
+        const shouldBuffer = this.config.bufferOfflineData !== false;
+        const maxBuffer = Math.max(100, Number(this.config.maxBufferSize) || 5000);
+
+        // If offline: push into offline ring buffer
+        if (!isConnected) {
+            if (shouldBuffer) {
+                for (const [key, t] of this.pendingUpdates.entries()) {
+                    const topic = `h/${token}/${t.identifier}`;
+                    const payload = {
+                        val: t.value,
+                        value: t.value,
+                        unit: t.unit,
+                        metric: t.metric,
+                        role: t.role,
+                        ts: nowSec,
+                        source: "iobroker.sharegy",
+                    };
+
+                    this.offlineBuffer.push({ topic, payload });
+
+                    // Enforce ring buffer max limit (drop oldest items)
+                    while (this.offlineBuffer.length > maxBuffer) {
+                        this.offlineBuffer.shift();
+                    }
+                }
+
+                this.setState("info.bufferedCount", this.offlineBuffer.length, true);
+                this.log.debug(`Connection offline: Queued ${this.pendingUpdates.size} packets in offline buffer (Total buffered: ${this.offlineBuffer.length})`);
+            } else {
+                this.log.debug("Connection offline and buffering disabled, dropping telemetry update.");
+            }
+
+            this.pendingUpdates.clear();
             return;
         }
 
-        const token = (this.config.mqttToken || "").trim();
-        const nowSec = Math.floor(Date.now() / 1000);
-
+        // When connected: publish immediately
         for (const [key, t] of this.pendingUpdates.entries()) {
             const topic = `h/${token}/${t.identifier}`;
             const payload = {
@@ -339,6 +377,36 @@ class SharegyAdapter extends utils.Adapter {
 
         this.pendingUpdates.clear();
         this.setState("info.lastSync", new Date().toISOString(), true);
+    }
+
+    /**
+     * Drain queued offline packets in batched chunks after reconnection
+     */
+    async drainOfflineBuffer() {
+        if (this.isDrainingBuffer || this.offlineBuffer.length === 0) return;
+        if (!this.mqttClient || !this.mqttClient.connected) return;
+
+        this.isDrainingBuffer = true;
+        const totalToDrain = this.offlineBuffer.length;
+        this.log.info(`Reconnected! Draining ${totalToDrain} buffered offline telemetry packets to Sharegy...`);
+
+        const batchSize = 25;
+        while (this.offlineBuffer.length > 0 && this.mqttClient && this.mqttClient.connected) {
+            const chunk = this.offlineBuffer.splice(0, batchSize);
+
+            for (const item of chunk) {
+                this.mqttClient.publish(item.topic, JSON.stringify(item.payload), { qos: 0, retain: false });
+            }
+
+            await this.setStateAsync("info.bufferedCount", this.offlineBuffer.length, true);
+
+            // Small 50ms pause between batches to prevent socket congestion
+            await new Promise(resolve => setTimeout(resolve, 50));
+        }
+
+        this.isDrainingBuffer = false;
+        await this.setStateAsync("info.bufferedCount", this.offlineBuffer.length, true);
+        this.log.info(`Successfully drained offline buffer (${totalToDrain} packets sent).`);
     }
 
     /**
