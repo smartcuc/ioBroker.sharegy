@@ -52,14 +52,20 @@ class SharegyAdapter extends utils.Adapter {
      */
     getEffectiveToken() {
         const proto = (this.config.protocol || "wss").toLowerCase();
-        if (proto === "wss" && this.config.wsUrl) {
+        if (this.config.wsUrl) {
             const urlStr = this.config.wsUrl.trim();
             const match = urlStr.match(/\/ws\/energy\/([a-zA-Z0-9_-]+)/);
             if (match && match[1]) {
                 return match[1].trim();
             }
         }
-        return (this.config.mqttToken || "").trim();
+        if (this.config.mqttToken && this.config.mqttToken.trim()) {
+            return this.config.mqttToken.trim();
+        }
+        if (this.config.token && this.config.token.trim()) {
+            return this.config.token.trim();
+        }
+        return "";
     }
 
     /**
@@ -73,7 +79,7 @@ class SharegyAdapter extends utils.Adapter {
         await this.setStateAsync("info.bufferedCount", 0, true);
 
         const token = this.getEffectiveToken();
-        if (!token && (this.config.protocol || "wss").toLowerCase() !== "wss") {
+        if (!token) {
             this.log.error("No Sharegy Home Token configured! Please enter your token in the adapter settings.");
             return;
         }
@@ -97,10 +103,23 @@ class SharegyAdapter extends utils.Adapter {
         // ==========================================
         if (proto === "wss") {
             let wsUrl = (this.config.wsUrl || "").trim();
-            if (!wsUrl || !wsUrl.startsWith("wss://")) {
-                wsUrl = `wss://sharegy.de/ws/energy/${token}/`;
-            } else if (!wsUrl.endsWith("/")) {
-                wsUrl += "/";
+            const host = (this.config.host || "sharegy.de").trim();
+
+            if (!wsUrl) {
+                wsUrl = `wss://${host}/ws/energy/${token ? token + "/" : ""}`;
+            } else {
+                if (wsUrl.startsWith("http://")) wsUrl = wsUrl.replace("http://", "ws://");
+                else if (wsUrl.startsWith("https://")) wsUrl = wsUrl.replace("https://", "wss://");
+                else if (!wsUrl.startsWith("ws://") && !wsUrl.startsWith("wss://")) wsUrl = `wss://${wsUrl}`;
+
+                // Falls wsUrl noch keinen Token im Pfad enthält, aber ein Token bekannt ist:
+                if (token && !wsUrl.includes(`/ws/energy/${token}`)) {
+                    wsUrl = wsUrl.replace(/\/ws\/energy\/?$/, "");
+                    wsUrl = `${wsUrl}/ws/energy/${token}/`;
+                }
+                if (!wsUrl.endsWith("/")) {
+                    wsUrl += "/";
+                }
             }
 
             this.log.info(`Connecting to Sharegy via Secure WebSocket (WSS) at ${wsUrl}...`);
@@ -111,11 +130,31 @@ class SharegyAdapter extends utils.Adapter {
                     this.wsClient = null;
                 }
 
+                if (this.pingInterval) {
+                    clearInterval(this.pingInterval);
+                    this.pingInterval = null;
+                }
+
                 this.wsClient = new WebSocket(wsUrl);
 
                 this.wsClient.onopen = () => {
                     this.log.info("Connected to Sharegy WebSocket (WSS) successfully!");
                     this.setState("info.connection", true, true);
+
+                    // 20s Keep-Alive Ping
+                    if (this.pingInterval) clearInterval(this.pingInterval);
+                    this.pingInterval = setInterval(() => {
+                        if (this.wsClient && this.wsClient.readyState === 1) {
+                            try {
+                                if (typeof this.wsClient.ping === "function") {
+                                    this.wsClient.ping();
+                                } else {
+                                    this.wsClient.send(JSON.stringify({ method: "ping" }));
+                                }
+                            } catch (e) {}
+                        }
+                    }, 20000);
+
                     this.drainOfflineBuffer();
                     this.publishAllStates();
                 };
@@ -129,9 +168,13 @@ class SharegyAdapter extends utils.Adapter {
                     this.setState("info.connection", false, true);
                 };
 
-                this.wsClient.onclose = () => {
-                    this.log.debug("WebSocket connection closed. Reconnecting in 5 seconds...");
+                this.wsClient.onclose = (event) => {
+                    this.log.debug(`WebSocket connection closed (code: ${event?.code || "-"}). Reconnecting in 5 seconds...`);
                     this.setState("info.connection", false, true);
+                    if (this.pingInterval) {
+                        clearInterval(this.pingInterval);
+                        this.pingInterval = null;
+                    }
                     if (!this.reconnectTimer) {
                         this.reconnectTimer = setTimeout(() => {
                             this.reconnectTimer = null;
