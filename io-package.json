@@ -1,8 +1,12 @@
 {
   "common": {
     "name": "sharegy",
-    "version": "1.0.0",
+    "version": "2.1.0",
     "news": {
+      "2.1.0": {
+        "en": "Add bidirectional floor heating thermal battery dispatch (DIN EN 12831), BWWP boost and WSS priority",
+        "de": "Unterstützung für bidirektionale Fußbodenheizungs- & Estrichspeicher-Steuerung (DIN EN 12831), BWWP-Boost und WSS-Priorisierung"
+      },
       "1.0.0": {
         "en": "Initial release of official Sharegy adapter with EMS, custom sensors and bidirectional load control",
         "de": "Erstveröffentlichung des offiziellen Sharegy Adapters mit EMS, Sensoren und Lastmanagement-Rückkanal"
@@ -14,8 +18,8 @@
       "de": "Sharegy Energiemanagement"
     },
     "desc": {
-      "en": "Connects ioBroker with the Sharegy Energy Management Platform (EMS, PV, Battery, Heatpump, Wallbox & Dynamic Tariffs)",
-      "de": "Verbindet ioBroker mit der Sharegy Energiemanagement-Plattform (EMS, PV, Speicher, Wärmepumpe, Wallbox & dynamische Tarife)"
+      "en": "Connects ioBroker with the Sharegy Energy Management Platform (EMS, PV, Battery, Floor Heating, Heatpump, Wallbox & Dynamic Tariffs)",
+      "de": "Verbindet ioBroker mit der Sharegy Energiemanagement-Plattform (EMS, PV, Speicher, Fußbodenheizung, Wärmepumpe, Wallbox & dynamische Tarife)"
     },
     "authors": [
       "Sharegy Team <info@sharegy.de>"
@@ -26,6 +30,7 @@
       "ems",
       "photovoltaic",
       "heatpump",
+      "floorheating",
       "battery",
       "bwwp",
       "wallbox"
@@ -85,7 +90,7 @@
       "type": "state",
       "common": {
         "role": "indicator.connected",
-        "name": "Connected to Sharegy MQTT Broker",
+        "name": "Connected to Sharegy Cloud / Broker",
         "type": "boolean",
         "read": true,
         "write": false,
@@ -128,6 +133,45 @@
       "native": {}
     },
     {
+      "_id": "control.bidirectional_enabled",
+      "type": "state",
+      "common": {
+        "role": "switch",
+        "name": "Bidirectional Control Enabled",
+        "type": "boolean",
+        "read": true,
+        "write": true,
+        "def": true
+      },
+      "native": {}
+    },
+    {
+      "_id": "control.floor_heating_boost",
+      "type": "state",
+      "common": {
+        "role": "switch",
+        "name": "Floor Heating Thermal Boost",
+        "type": "boolean",
+        "read": true,
+        "write": true,
+        "def": false
+      },
+      "native": {}
+    },
+    {
+      "_id": "control.bwwp_boost",
+      "type": "state",
+      "common": {
+        "role": "switch",
+        "name": "BWWP SG-Ready Boost",
+        "type": "boolean",
+        "read": true,
+        "write": true,
+        "def": false
+      },
+      "native": {}
+    },
+    {
       "_id": "control.lastCommand",
       "type": "state",
       "common": {
@@ -137,6 +181,55 @@
         "read": true,
         "write": false,
         "def": "{}"
+      },
+      "native": {}
+    },
+    {
+      "_id": "status",
+      "type": "channel",
+      "common": {
+        "name": "Sharegy Live Status & Setpoints"
+      },
+      "native": {}
+    },
+    {
+      "_id": "status.flow_temp_setpoint",
+      "type": "state",
+      "common": {
+        "role": "value.temperature",
+        "name": "DIN EN 12831 Flow Temperature Setpoint",
+        "type": "number",
+        "unit": "°C",
+        "read": true,
+        "write": false,
+        "def": 30.0
+      },
+      "native": {}
+    },
+    {
+      "_id": "status.screed_soc",
+      "type": "state",
+      "common": {
+        "role": "value",
+        "name": "Screed Thermal Battery SoC",
+        "type": "number",
+        "unit": "%",
+        "read": true,
+        "write": false,
+        "def": 50.0
+      },
+      "native": {}
+    },
+    {
+      "_id": "status.operating_mode",
+      "type": "state",
+      "common": {
+        "role": "text",
+        "name": "Operating Mode",
+        "type": "string",
+        "read": true,
+        "write": false,
+        "def": "STANDBY"
       },
       "native": {}
     }

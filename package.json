@@ -1,7 +1,7 @@
 {
   "name": "iobroker.sharegy",
-  "version": "1.0.0",
-  "description": "Official Sharegy Adapter: EMS Energy Management, Telemetry & Bidirectional Smart Load Control",
+  "version": "2.1.0",
+  "description": "Official Sharegy Adapter: EMS Energy Management, Floor Heating Thermal Battery Dispatch, Telemetry & Bidirectional Smart Load Control",
   "author": {
     "name": "Sharegy Team",
     "email": "info@sharegy.de"
@@ -15,6 +15,7 @@
     "smart-home",
     "ems",
     "photovoltaic",
+    "floorheating",
     "heatpump",
     "battery",
     "wallbox",

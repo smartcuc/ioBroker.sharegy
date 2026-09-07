@@ -611,6 +611,31 @@ class SharegyAdapter extends utils.Adapter {
             return;
         }
 
+        // Update live status & setpoints
+        if (data.flow_temp_setpoint_c !== undefined) {
+            await this.setStateAsync("status.flow_temp_setpoint", Number(data.flow_temp_setpoint_c), true);
+        }
+        if (data.screed_soc_pct !== undefined) {
+            await this.setStateAsync("status.screed_soc", Number(data.screed_soc_pct), true);
+        }
+        if (data.mode !== undefined) {
+            await this.setStateAsync("status.operating_mode", String(data.mode), true);
+        }
+        if (data.floor_heating_boost !== undefined || data.action === "FLOOR_HEATING_BOOST") {
+            const boostActive = Boolean(data.floor_heating_boost ?? (data.action === "FLOOR_HEATING_BOOST"));
+            await this.setStateAsync("control.floor_heating_boost", boostActive, true);
+        }
+        if (data.bwwp_boost !== undefined) {
+            await this.setStateAsync("control.bwwp_boost", Boolean(data.bwwp_boost), true);
+        }
+
+        // Check if bidirectional control is enabled
+        const bidiState = await this.getStateAsync("control.bidirectional_enabled");
+        if (bidiState && bidiState.val === false) {
+            this.log.debug("Bidirectional control is paused, skipping execution on target objects.");
+            return;
+        }
+
         // 1. Shelly RPC Relay Command: {"method": "Switch.Set", "params": {"id": 0, "on": true}}
         if (data.method && data.method.startsWith("Switch.")) {
             const onVal = data.params?.on;
@@ -669,6 +694,32 @@ class SharegyAdapter extends utils.Adapter {
         }
 
         const rawVal = data.val !== undefined ? data.val : (data.value !== undefined ? data.value : (data.state !== undefined ? data.state : data));
+
+        // Update live status & setpoints
+        if (data.flow_temp_setpoint_c !== undefined) {
+            await this.setStateAsync("status.flow_temp_setpoint", Number(data.flow_temp_setpoint_c), true);
+        }
+        if (data.screed_soc_pct !== undefined) {
+            await this.setStateAsync("status.screed_soc", Number(data.screed_soc_pct), true);
+        }
+        if (data.mode !== undefined) {
+            await this.setStateAsync("status.operating_mode", String(data.mode), true);
+        }
+        if (data.floor_heating_boost !== undefined || data.action === "FLOOR_HEATING_BOOST" || identifier === "floor_heating_boost") {
+            const boostActive = Boolean(data.floor_heating_boost ?? (data.action === "FLOOR_HEATING_BOOST" || rawVal === true || rawVal === 1));
+            await this.setStateAsync("control.floor_heating_boost", boostActive, true);
+        }
+        if (data.bwwp_boost !== undefined || identifier === "bwwp_boost") {
+            const bwwpActive = Boolean(data.bwwp_boost ?? (rawVal === true || rawVal === 1));
+            await this.setStateAsync("control.bwwp_boost", bwwpActive, true);
+        }
+
+        // Check if bidirectional control is enabled
+        const bidiState = await this.getStateAsync("control.bidirectional_enabled");
+        if (bidiState && bidiState.val === false) {
+            this.log.debug("Bidirectional control is paused, skipping execution on target objects.");
+            return;
+        }
 
         if (Array.isArray(this.config.controlObjects)) {
             for (const ctrl of this.config.controlObjects) {
