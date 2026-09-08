@@ -73,7 +73,24 @@
     "batterySocId": "",
     "houseConsumptionId": "",
     "customDevices": [],
-    "controlObjects": []
+    "controlObjects": [],
+    "fbhEnabled": false,
+    "fbhControlMode": "autopilot",
+    "fbhRoomTempId": "",
+    "fbhFlowTempActualId": "",
+    "fbhFloorTempId": "",
+    "fbhOutdoorTempId": "",
+    "fbhHeatPumpPowerId": "",
+    "fbhRelayTargetId": "",
+    "fbhRelayInvert": false,
+    "fbhFlowSetpointTargetId": "",
+    "fbhBoostTargetId": "",
+    "fbhTargetRoomTemp": 21.0,
+    "fbhBoostDeltaK": 1.0,
+    "fbhMaxFloorTemp": 24.5,
+    "fbhMinPvSurplusW": 1000,
+    "fbhMaxSpotPriceCt": 16.0,
+    "fbhOfflineResilience": true
   },
   "objects": [],
   "instanceObjects": [
@@ -230,6 +247,148 @@
         "read": true,
         "write": false,
         "def": "STANDBY"
+      },
+      "native": {}
+    },
+    {
+      "_id": "floorheating",
+      "type": "channel",
+      "common": {
+        "name": "Floor Heating & Screed Storage Control"
+      },
+      "native": {}
+    },
+    {
+      "_id": "floorheating.active",
+      "type": "state",
+      "common": {
+        "role": "switch",
+        "name": "Floor Heating Control Active",
+        "type": "boolean",
+        "read": true,
+        "write": true,
+        "def": false
+      },
+      "native": {}
+    },
+    {
+      "_id": "floorheating.room_temp_actual",
+      "type": "state",
+      "common": {
+        "role": "value.temperature",
+        "name": "Actual Room Temperature",
+        "type": "number",
+        "unit": "°C",
+        "read": true,
+        "write": false,
+        "def": 21.0
+      },
+      "native": {}
+    },
+    {
+      "_id": "floorheating.flow_temp_actual",
+      "type": "state",
+      "common": {
+        "role": "value.temperature",
+        "name": "Actual Flow Temperature",
+        "type": "number",
+        "unit": "°C",
+        "read": true,
+        "write": false,
+        "def": 28.0
+      },
+      "native": {}
+    },
+    {
+      "_id": "floorheating.flow_temp_setpoint",
+      "type": "state",
+      "common": {
+        "role": "value.temperature",
+        "name": "Calculated Flow Temperature Setpoint (DIN EN 12831 / MPC)",
+        "type": "number",
+        "unit": "°C",
+        "read": true,
+        "write": false,
+        "def": 30.0
+      },
+      "native": {}
+    },
+    {
+      "_id": "floorheating.relay_state",
+      "type": "state",
+      "common": {
+        "role": "switch",
+        "name": "Heating Circuit Relay / Valve Actuator State",
+        "type": "boolean",
+        "read": true,
+        "write": true,
+        "def": false
+      },
+      "native": {}
+    },
+    {
+      "_id": "floorheating.boost_active",
+      "type": "state",
+      "common": {
+        "role": "switch",
+        "name": "Thermal Screed Pre-Heat Boost Active",
+        "type": "boolean",
+        "read": true,
+        "write": true,
+        "def": false
+      },
+      "native": {}
+    },
+    {
+      "_id": "floorheating.screed_soc",
+      "type": "state",
+      "common": {
+        "role": "value",
+        "name": "Thermal Screed Storage SoC",
+        "type": "number",
+        "unit": "%",
+        "read": true,
+        "write": false,
+        "def": 50.0
+      },
+      "native": {}
+    },
+    {
+      "_id": "floorheating.operating_mode",
+      "type": "state",
+      "common": {
+        "role": "text",
+        "name": "Current Operating Mode",
+        "type": "string",
+        "read": true,
+        "write": false,
+        "def": "autopilot"
+      },
+      "native": {}
+    },
+    {
+      "_id": "floorheating.offline_autonomous",
+      "type": "state",
+      "common": {
+        "role": "indicator",
+        "name": "Local 24h Offline Autonomous Mode Active",
+        "type": "boolean",
+        "read": true,
+        "write": false,
+        "def": false
+      },
+      "native": {}
+    },
+    {
+      "_id": "floorheating.cached_schedule",
+      "type": "state",
+      "common": {
+        "role": "json",
+        "name": "Cached 24h MPC Schedule for Offline Resilience",
+        "type": "string",
+        "read": true,
+        "write": false,
+        "def": "[]"
       },
       "native": {}
     }

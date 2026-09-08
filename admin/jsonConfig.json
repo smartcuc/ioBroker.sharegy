@@ -343,6 +343,216 @@
           ]
         }
       }
+    },
+    "tabFloorHeating": {
+      "type": "panel",
+      "label": "🔥 Fußbodenheizung & Estrich",
+      "items": {
+        "headerFbh": {
+          "type": "header",
+          "text": "Vorausschauende Fußbodenheizungs- & Estrich-Speicher Steuerung (DIN EN 12831 / MPC)"
+        },
+        "infoFbh": {
+          "type": "staticText",
+          "text": "Nutzt die thermische Speichermasse des Estrichs als Energiebatterie. Lädt Wärme bei PV-Überschuss oder günstigen Börsenpreisen vor und überbrückt teure Spitzenlaststunden passiv. Bei Internetausfall steuert die integrierte 24h-Offline-Resilienz die Heizung autonom weiter."
+        },
+        "fbhEnabled": {
+          "type": "checkbox",
+          "label": "🔥 Fußbodenheizungs- & Estrich-Steuerung aktivieren",
+          "default": false,
+          "sm": 12,
+          "md": 6
+        },
+        "fbhControlMode": {
+          "type": "select",
+          "label": "Betriebsmodus",
+          "default": "autopilot",
+          "options": [
+            { "value": "autopilot", "label": "🚀 Autopilot (KI-Wetter & 24h-MPC Optimierung)" },
+            { "value": "pv_only", "label": "☀️ PV-Only (Vorladung rein aus Solarüberschuss)" },
+            { "value": "price_saver", "label": "💰 Price-Saver (Vorladung bei günstigen Börsenpreisen)" },
+            { "value": "comfort", "label": "🛋️ Komfortbetrieb (Feste Solltemperatur ohne Vorladung)" },
+            { "value": "manual", "label": "✋ Manuell (Automatik pausiert)" }
+          ],
+          "hidden": "!data.fbhEnabled",
+          "sm": 12,
+          "md": 6
+        },
+        "dividerFbhSensors": {
+          "type": "divider",
+          "hidden": "!data.fbhEnabled"
+        },
+        "headerFbhSensors": {
+          "type": "header",
+          "text": "1. Messpunkte & Sensor-Eingänge (ioBroker -> Sharegy & Offline-Controller)",
+          "hidden": "!data.fbhEnabled"
+        },
+        "fbhRoomTempId": {
+          "type": "objectId",
+          "label": "Raum-Ist-Temperatur (°C) *",
+          "help": "Zentraler Raumtemperatursensor (z. B. zigbee.0.living_room.temp oder hm-rpc.0.thermostat.actual)",
+          "hidden": "!data.fbhEnabled",
+          "sm": 12,
+          "md": 6
+        },
+        "fbhFlowTempActualId": {
+          "type": "objectId",
+          "label": "Vorlauf-Ist-Temperatur (°C, optional)",
+          "help": "Heizkreis Vorlauf-Fühler (z. B. modbus.0.heatpump.flow_temp)",
+          "hidden": "!data.fbhEnabled",
+          "sm": 12,
+          "md": 6
+        },
+        "fbhFloorTempId": {
+          "type": "objectId",
+          "label": "Estrich- / Bodentemperatur (°C, optional)",
+          "help": "Bodenfühler zum Schutz temperaturempfindlicher Bodenbeläge",
+          "hidden": "!data.fbhEnabled",
+          "sm": 12,
+          "md": 4
+        },
+        "fbhOutdoorTempId": {
+          "type": "objectId",
+          "label": "Lokale Außentemperatur (°C, optional)",
+          "help": "Falls leer, nutzt Sharegy hochauflösende DWD/Open-Meteo Wetterprognosen",
+          "hidden": "!data.fbhEnabled",
+          "sm": 12,
+          "md": 4
+        },
+        "fbhHeatPumpPowerId": {
+          "type": "objectId",
+          "label": "Heizkreis- / WP-Leistung (W, optional)",
+          "help": "z. B. shelly.0.shellyem3#heatpump.Power oder modbus.0.power",
+          "hidden": "!data.fbhEnabled",
+          "sm": 12,
+          "md": 4
+        },
+        "dividerFbhActors": {
+          "type": "divider",
+          "hidden": "!data.fbhEnabled"
+        },
+        "headerFbhActors": {
+          "type": "header",
+          "text": "2. Aktorik & Steuer-Ausgänge (Sharegy / Offline-Fahrplan -> ioBroker)",
+          "hidden": "!data.fbhEnabled"
+        },
+        "fbhRelayTargetId": {
+          "type": "objectId",
+          "label": "Heizkreis-Relais / Ventil-Aktor Ziel-Objekt *",
+          "help": "Schaltaktor für Heizkreispumpe, Ventil oder Relais (z. B. shelly.0.shellyplus1#fbh.Relay0.Switch)",
+          "hidden": "!data.fbhEnabled",
+          "sm": 12,
+          "md": 8
+        },
+        "fbhRelayInvert": {
+          "type": "checkbox",
+          "label": "Relais invertieren (NC / Schließer)",
+          "default": false,
+          "hidden": "!data.fbhEnabled",
+          "sm": 12,
+          "md": 4
+        },
+        "fbhFlowSetpointTargetId": {
+          "type": "objectId",
+          "label": "Vorlauf-Solltemperatur Ziel-Objekt (°C, optional)",
+          "help": "Für stetig modulierende Wärmepumpen / Mischer nach DIN EN 12831",
+          "hidden": "!data.fbhEnabled",
+          "sm": 12,
+          "md": 6
+        },
+        "fbhBoostTargetId": {
+          "type": "objectId",
+          "label": "SG-Ready / Boost Schaltausgang (optional)",
+          "help": "Zusätzlicher digitaler Kontakt für WP SG-Ready Eingang",
+          "hidden": "!data.fbhEnabled",
+          "sm": 12,
+          "md": 6
+        },
+        "dividerFbhParams": {
+          "type": "divider",
+          "hidden": "!data.fbhEnabled"
+        },
+        "headerFbhParams": {
+          "type": "header",
+          "text": "3. Sollwerte, Schwellen & Speichergrenzen",
+          "hidden": "!data.fbhEnabled"
+        },
+        "fbhTargetRoomTemp": {
+          "type": "number",
+          "label": "Ziel-Raumtemperatur (°C)",
+          "default": 21.0,
+          "min": 15.0,
+          "max": 28.0,
+          "step": 0.5,
+          "hidden": "!data.fbhEnabled",
+          "sm": 12,
+          "md": 4
+        },
+        "fbhBoostDeltaK": {
+          "type": "number",
+          "label": "Max. Vorladeanhebung (+K)",
+          "default": 1.0,
+          "min": 0.2,
+          "max": 3.0,
+          "step": 0.1,
+          "help": "Temperaturhub des Estrichs bei Überschuss / Negativpreis",
+          "hidden": "!data.fbhEnabled",
+          "sm": 12,
+          "md": 4
+        },
+        "fbhMaxFloorTemp": {
+          "type": "number",
+          "label": "Max. Estrich-Sicherheitstemperatur (°C)",
+          "default": 24.5,
+          "min": 20.0,
+          "max": 35.0,
+          "step": 0.5,
+          "help": "Sicherheits-Überhitzungsschutz für Parkett/Estrich",
+          "hidden": "!data.fbhEnabled",
+          "sm": 12,
+          "md": 4
+        },
+        "fbhMinPvSurplusW": {
+          "type": "number",
+          "label": "Mindest-Solarüberschuss für Vorladung (W)",
+          "default": 1000,
+          "min": 0,
+          "max": 10000,
+          "step": 100,
+          "hidden": "!data.fbhEnabled",
+          "sm": 12,
+          "md": 6
+        },
+        "fbhMaxSpotPriceCt": {
+          "type": "number",
+          "label": "Max. Börsenpreis für Vorladung (ct/kWh)",
+          "default": 16.0,
+          "min": -20.0,
+          "max": 60.0,
+          "step": 0.5,
+          "hidden": "!data.fbhEnabled",
+          "sm": 12,
+          "md": 6
+        },
+        "dividerFbhOffline": {
+          "type": "divider",
+          "hidden": "!data.fbhEnabled"
+        },
+        "headerFbhOffline": {
+          "type": "header",
+          "text": "4. Lokale 24h-Offline-Resilienz (Autonomes Heizen ohne Internet)",
+          "hidden": "!data.fbhEnabled"
+        },
+        "fbhOfflineResilience": {
+          "type": "checkbox",
+          "label": "🛡️ 24h-Fahrplan lokal im ioBroker cachen & bei Ausfall autonom steuern",
+          "default": true,
+          "help": "Gewährleistet Heizbetrieb und Estrich-Vorladung auch bei DSL-Ausfall, Router-Neustart oder Server-Wartung",
+          "hidden": "!data.fbhEnabled",
+          "sm": 12,
+          "md": 12
+        }
+      }
     }
   }
 }

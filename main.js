@@ -35,6 +35,12 @@ class SharegyAdapter extends utils.Adapter {
         this.mqttClient = null;
         this.wsClient = null;
         this.reconnectTimer = null;
+        this.reconnectAttempts = 0;
+        this.heartbeatTimer = null;
+        this.lastHeartbeatTimestamp = 0;
+        this.offlineLoopTimer = null;
+        this.cachedSchedule24h = [];
+
         this.subscribedStateIds = new Set();
         this.lastSentTimestamps = new Map();
         this.pendingUpdates = new Map();
@@ -72,11 +78,26 @@ class SharegyAdapter extends utils.Adapter {
      * Is called when databases are connected and adapter received configuration.
      */
     async onReady() {
-        this.log.info("Starting Sharegy Energy Management Adapter...");
+        this.log.info("Starting Sharegy Energy Management Adapter v2.1.0...");
 
         // Reset connection status and buffer counter
         await this.setStateAsync("info.connection", false, true);
         await this.setStateAsync("info.bufferedCount", 0, true);
+        await this.setStateAsync("floorheating.offline_autonomous", false, true);
+
+        // Load cached schedule from persisted state if available
+        try {
+            const cachedSchedState = await this.getStateAsync("floorheating.cached_schedule");
+            if (cachedSchedState && cachedSchedState.val && typeof cachedSchedState.val === "string") {
+                const parsed = JSON.parse(cachedSchedState.val);
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                    this.cachedSchedule24h = parsed;
+                    this.log.info(`Loaded ${this.cachedSchedule24h.length} cached 24h schedule slots from persistent state.`);
+                }
+            }
+        } catch (e) {
+            this.log.debug(`Could not restore cached schedule: ${e.message}`);
+        }
 
         const token = this.getEffectiveToken();
         if (!token) {
@@ -84,11 +105,119 @@ class SharegyAdapter extends utils.Adapter {
             return;
         }
 
-        // Initialize Connection
+        // Initialize Connection with auto-reconnect
         this.connect();
 
-        // Subscribe to configured EMS and Custom Device states
+        // Subscribe to configured EMS, FBH and Custom Device states
         this.initSubscriptions();
+
+        // Start 60s Local Autonomous Offline-Resilience Controller Loop
+        if (this.offlineLoopTimer) {
+            clearInterval(this.offlineLoopTimer);
+        }
+        this.offlineLoopTimer = setInterval(() => {
+            this.runOfflineHeatingLoop();
+        }, 60000);
+    }
+
+    /**
+     * Clean up active sockets and timers before reconnecting or unloading
+     */
+    cleanupSockets() {
+        if (this.heartbeatTimer) {
+            clearInterval(this.heartbeatTimer);
+            this.heartbeatTimer = null;
+        }
+
+        if (this.wsClient) {
+            try {
+                this.wsClient.onopen = null;
+                this.wsClient.onmessage = null;
+                this.wsClient.onerror = null;
+                this.wsClient.onclose = null;
+                if (typeof this.wsClient.terminate === "function") {
+                    this.wsClient.terminate();
+                } else {
+                    this.wsClient.close();
+                }
+            } catch (e) {}
+            this.wsClient = null;
+        }
+
+        if (this.mqttClient) {
+            try {
+                this.mqttClient.end(true);
+            } catch (e) {}
+            this.mqttClient = null;
+        }
+    }
+
+    /**
+     * Centralized, exponential backoff reconnection manager
+     */
+    scheduleReconnect(forcedDelayMs = null) {
+        if (this.reconnectTimer) {
+            clearTimeout(this.reconnectTimer);
+            this.reconnectTimer = null;
+        }
+
+        this.setState("info.connection", false, true);
+
+        this.reconnectAttempts++;
+        let delay = forcedDelayMs;
+        if (delay === null || delay === undefined) {
+            // Exponential backoff: 2s -> 3s -> 4.5s -> 6.75s -> ... capped at 30s
+            const backoff = Math.min(30000, 2000 * Math.pow(1.5, Math.min(this.reconnectAttempts - 1, 8)));
+            const jitter = Math.floor(Math.random() * 800);
+            delay = Math.round(backoff + jitter);
+        }
+
+        this.log.info(`Scheduling reconnection to Sharegy in ${(delay / 1000).toFixed(1)}s (Attempt #${this.reconnectAttempts})...`);
+        this.reconnectTimer = setTimeout(() => {
+            this.reconnectTimer = null;
+            this.connect();
+        }, delay);
+    }
+
+    /**
+     * Heartbeat watchdog: detects dead / half-open TCP connections (e.g. after Daphne restart)
+     */
+    startHeartbeatWatchdog() {
+        if (this.heartbeatTimer) {
+            clearInterval(this.heartbeatTimer);
+            this.heartbeatTimer = null;
+        }
+
+        this.lastHeartbeatTimestamp = Date.now();
+
+        this.heartbeatTimer = setInterval(() => {
+            if (!this.isConnectionActive()) {
+                return;
+            }
+
+            const now = Date.now();
+
+            // 1. Send Ping Frame
+            const proto = (this.config.protocol || "wss").toLowerCase();
+            if (proto === "wss" && this.wsClient && this.wsClient.readyState === 1) {
+                try {
+                    if (typeof this.wsClient.ping === "function") {
+                        this.wsClient.ping();
+                    } else {
+                        this.wsClient.send(JSON.stringify({ method: "ping" }));
+                    }
+                } catch (e) {
+                    this.log.debug(`Failed to send WS ping: ${e.message}`);
+                }
+            }
+
+            // 2. Check if server answered within 45s
+            if (this.lastHeartbeatTimestamp > 0 && (now - this.lastHeartbeatTimestamp > 45000)) {
+                this.log.warn("Sharegy connection watchdog: Heartbeat lost (no response for >45s). Forcing reconnect...");
+                this.cleanupSockets();
+                this.scheduleReconnect(1000);
+            }
+        }, 15000);
     }
 
     /**
@@ -97,6 +226,8 @@ class SharegyAdapter extends utils.Adapter {
     connect() {
         const proto = (this.config.protocol || "wss").toLowerCase();
         const token = this.getEffectiveToken();
+
+        this.cleanupSockets();
 
         // ==========================================
         // 1. WSS (Native Secure WebSocket over 443)
@@ -112,7 +243,6 @@ class SharegyAdapter extends utils.Adapter {
                 else if (wsUrl.startsWith("https://")) wsUrl = wsUrl.replace("https://", "wss://");
                 else if (!wsUrl.startsWith("ws://") && !wsUrl.startsWith("wss://")) wsUrl = `wss://${wsUrl}`;
 
-                // Falls wsUrl noch keinen Token im Pfad enthält, aber ein Token bekannt ist:
                 if (token && !wsUrl.includes(`/ws/energy/${token}`)) {
                     wsUrl = wsUrl.replace(/\/ws\/energy\/?$/, "");
                     wsUrl = `${wsUrl}/ws/energy/${token}/`;
@@ -125,41 +255,22 @@ class SharegyAdapter extends utils.Adapter {
             this.log.info(`Connecting to Sharegy via Secure WebSocket (WSS) at ${wsUrl}...`);
 
             try {
-                if (this.wsClient) {
-                    try { this.wsClient.close(); } catch (e) {}
-                    this.wsClient = null;
-                }
-
-                if (this.pingInterval) {
-                    clearInterval(this.pingInterval);
-                    this.pingInterval = null;
-                }
-
                 this.wsClient = new WebSocket(wsUrl);
 
                 this.wsClient.onopen = () => {
                     this.log.info("Connected to Sharegy WebSocket (WSS) successfully!");
+                    this.reconnectAttempts = 0;
+                    this.lastHeartbeatTimestamp = Date.now();
                     this.setState("info.connection", true, true);
+                    this.setState("floorheating.offline_autonomous", false, true);
 
-                    // 20s Keep-Alive Ping
-                    if (this.pingInterval) clearInterval(this.pingInterval);
-                    this.pingInterval = setInterval(() => {
-                        if (this.wsClient && this.wsClient.readyState === 1) {
-                            try {
-                                if (typeof this.wsClient.ping === "function") {
-                                    this.wsClient.ping();
-                                } else {
-                                    this.wsClient.send(JSON.stringify({ method: "ping" }));
-                                }
-                            } catch (e) {}
-                        }
-                    }, 20000);
-
+                    this.startHeartbeatWatchdog();
                     this.drainOfflineBuffer();
                     this.publishAllStates();
                 };
 
                 this.wsClient.onmessage = (event) => {
+                    this.lastHeartbeatTimestamp = Date.now();
                     this.handleIncomingWsMessage(event.data);
                 };
 
@@ -169,22 +280,15 @@ class SharegyAdapter extends utils.Adapter {
                 };
 
                 this.wsClient.onclose = (event) => {
-                    this.log.debug(`WebSocket connection closed (code: ${event?.code || "-"}). Reconnecting in 5 seconds...`);
-                    this.setState("info.connection", false, true);
-                    if (this.pingInterval) {
-                        clearInterval(this.pingInterval);
-                        this.pingInterval = null;
-                    }
-                    if (!this.reconnectTimer) {
-                        this.reconnectTimer = setTimeout(() => {
-                            this.reconnectTimer = null;
-                            this.connect();
-                        }, 5000);
-                    }
+                    this.log.warn(`WebSocket connection closed (code: ${event?.code || "-"}, reason: ${event?.reason || "none"}).`);
+                    this.cleanupSockets();
+                    this.scheduleReconnect();
                 };
 
             } catch (e) {
-                this.log.error(`Failed to create WebSocket client: ${e.message}`);
+                this.log.error(`Failed to initiate WebSocket connection: ${e.message}`);
+                this.cleanupSockets();
+                this.scheduleReconnect();
             }
             return;
         }
@@ -215,24 +319,30 @@ class SharegyAdapter extends utils.Adapter {
 
             this.mqttClient.on("connect", () => {
                 this.log.info("Connected to Sharegy MQTT Broker successfully!");
+                this.reconnectAttempts = 0;
+                this.lastHeartbeatTimestamp = Date.now();
                 this.setState("info.connection", true, true);
+                this.setState("floorheating.offline_autonomous", false, true);
 
                 const controlTopicWildcard = `h/${token}/+/set`;
                 const globalControlTopic = `h/${token}/control/#`;
+                const fbhTopic = `h/${token}/floor_heating/#`;
 
-                this.mqttClient.subscribe([controlTopicWildcard, globalControlTopic], (err) => {
+                this.mqttClient.subscribe([controlTopicWildcard, globalControlTopic, fbhTopic], (err) => {
                     if (err) {
                         this.log.error(`Failed to subscribe to control topics: ${err.message}`);
                     } else {
-                        this.log.info(`Subscribed to Sharegy control channels: ${controlTopicWildcard}, ${globalControlTopic}`);
+                        this.log.info(`Subscribed to Sharegy control channels.`);
                     }
                 });
 
+                this.startHeartbeatWatchdog();
                 this.drainOfflineBuffer();
                 this.publishAllStates();
             });
 
             this.mqttClient.on("message", (topic, payload) => {
+                this.lastHeartbeatTimestamp = Date.now();
                 this.handleIncomingMqttMessage(topic, payload);
             });
 
@@ -252,6 +362,7 @@ class SharegyAdapter extends utils.Adapter {
 
         } catch (e) {
             this.log.error(`Failed to create MQTT client: ${e.message}`);
+            this.scheduleReconnect();
         }
     }
 
@@ -293,7 +404,29 @@ class SharegyAdapter extends utils.Adapter {
             }
         }
 
-        // 2. Custom Devices & Sensors Table
+        // 2. Dedicated Floor Heating & Screed Storage Inputs & Feedback
+        if (this.config.fbhEnabled) {
+            const fbhKeys = [
+                "fbhRoomTempId",
+                "fbhFlowTempActualId",
+                "fbhFloorTempId",
+                "fbhOutdoorTempId",
+                "fbhHeatPumpPowerId",
+                "fbhRelayTargetId",
+            ];
+
+            for (const key of fbhKeys) {
+                const stateId = this.config[key];
+                if (stateId && typeof stateId === "string" && stateId.trim() !== "") {
+                    const cleanId = stateId.trim();
+                    this.subscribedStateIds.add(cleanId);
+                    this.subscribeForeignStates(cleanId);
+                    this.log.debug(`Subscribed to Floor Heating state: ${cleanId} (${key})`);
+                }
+            }
+        }
+
+        // 3. Custom Devices & Sensors Table
         if (Array.isArray(this.config.customDevices)) {
             for (const item of this.config.customDevices) {
                 if (item && item.enabled !== false && item.id && item.id.trim() !== "") {
@@ -305,7 +438,7 @@ class SharegyAdapter extends utils.Adapter {
             }
         }
 
-        // 3. Bidirectional Control & Feedback Objects (Rückkanal Ist-Zustände)
+        // 4. Bidirectional Control & Feedback Objects (Rückkanal Ist-Zustände)
         if (Array.isArray(this.config.controlObjects)) {
             for (const item of this.config.controlObjects) {
                 if (item && item.enabled !== false && item.targetId && item.targetId.trim() !== "") {
@@ -331,7 +464,6 @@ class SharegyAdapter extends utils.Adapter {
         this.log.debug(`State changed: ${id} = ${state.val} (ack: ${state.ack})`);
 
         const payloadsToSend = [];
-        const token = this.getEffectiveToken();
 
         // A) EMS Checks
         if (id === this.config.pvPowerId) {
@@ -406,7 +538,78 @@ class SharegyAdapter extends utils.Adapter {
             });
         }
 
-        // B) Custom Devices Table Check
+        // B) Dedicated Floor Heating & Screed Storage Telemetry
+        if (this.config.fbhEnabled) {
+            if (id === this.config.fbhRoomTempId) {
+                const roomTemp = Number(state.val);
+                await this.setStateAsync("floorheating.room_temp_actual", roomTemp, true);
+                payloadsToSend.push({
+                    identifier: "floor_heating_room_temp",
+                    metric: "temperature",
+                    unit: "°C",
+                    role: "sensor",
+                    value: roomTemp,
+                });
+            }
+
+            if (id === this.config.fbhFlowTempActualId) {
+                const flowTemp = Number(state.val);
+                await this.setStateAsync("floorheating.flow_temp_actual", flowTemp, true);
+                payloadsToSend.push({
+                    identifier: "floor_heating_flow_temp",
+                    metric: "temperature",
+                    unit: "°C",
+                    role: "sensor",
+                    value: flowTemp,
+                });
+            }
+
+            if (id === this.config.fbhFloorTempId) {
+                payloadsToSend.push({
+                    identifier: "floor_heating_surface_temp",
+                    metric: "temperature",
+                    unit: "°C",
+                    role: "sensor",
+                    value: Number(state.val),
+                });
+            }
+
+            if (id === this.config.fbhOutdoorTempId) {
+                payloadsToSend.push({
+                    identifier: "outdoor_temp",
+                    metric: "temperature",
+                    unit: "°C",
+                    role: "sensor",
+                    value: Number(state.val),
+                });
+            }
+
+            if (id === this.config.fbhHeatPumpPowerId) {
+                payloadsToSend.push({
+                    identifier: "heatpump",
+                    metric: "power",
+                    unit: "W",
+                    role: "consumer",
+                    value: this.normalizePowerValue(state.val),
+                });
+            }
+
+            if (id === this.config.fbhRelayTargetId) {
+                let boolVal = (state.val === true || state.val === "true" || state.val === 1 || state.val === "1" || state.val === "ON" || state.val === "on");
+                if (this.config.fbhRelayInvert) boolVal = !boolVal;
+                await this.setStateAsync("floorheating.relay_state", boolVal, true);
+                payloadsToSend.push({
+                    identifier: "floor_heating_relay",
+                    metric: "relay_state",
+                    role: "consumer",
+                    state: boolVal,
+                    relay_state: boolVal,
+                    val: boolVal,
+                });
+            }
+        }
+
+        // C) Custom Devices Table Check
         if (Array.isArray(this.config.customDevices)) {
             for (const item of this.config.customDevices) {
                 if (item && item.enabled !== false && item.id === id) {
@@ -427,7 +630,7 @@ class SharegyAdapter extends utils.Adapter {
             }
         }
 
-        // C) Control Objects Feedback (Ist-Zustand Rückmeldung für Relais & Schalter)
+        // D) Control Objects Feedback (Ist-Zustand Rückmeldung für Relais & Schalter)
         if (Array.isArray(this.config.controlObjects)) {
             for (const item of this.config.controlObjects) {
                 if (item && item.enabled !== false && item.targetId && item.targetId.trim() === id) {
@@ -601,7 +804,13 @@ class SharegyAdapter extends utils.Adapter {
      */
     async handleIncomingWsMessage(msgData) {
         const payloadStr = msgData.toString();
-        this.log.info(`Received message from Sharegy over WSS: ${payloadStr}`);
+        this.log.debug(`Received message from Sharegy over WSS: ${payloadStr}`);
+
+        // Quick Pong/Heartbeat check
+        if (payloadStr === '{"type":"pong","status":"ok"}' || payloadStr === '{"type": "pong", "status": "ok"}') {
+            return;
+        }
+
         await this.setStateAsync("control.lastCommand", payloadStr, true);
 
         let data = {};
@@ -611,22 +820,69 @@ class SharegyAdapter extends utils.Adapter {
             return;
         }
 
-        // Update live status & setpoints
+        // 1. Process 24h MPC Schedule sync & timeline caching for local offline resilience
+        const timeline = data.timeline || (data.predictive_mpc && data.predictive_mpc.timeline);
+        if (Array.isArray(timeline) && timeline.length > 0) {
+            this.cachedSchedule24h = timeline;
+            await this.setStateAsync("floorheating.cached_schedule", JSON.stringify(timeline), true);
+            this.log.info(`Updated and cached 24h predictive MPC schedule (${timeline.length} hourly slots) for local offline resilience.`);
+        }
+
+        // 2. Update live status & setpoints
         if (data.flow_temp_setpoint_c !== undefined) {
-            await this.setStateAsync("status.flow_temp_setpoint", Number(data.flow_temp_setpoint_c), true);
+            const spVal = Number(data.flow_temp_setpoint_c);
+            await this.setStateAsync("status.flow_temp_setpoint", spVal, true);
+            await this.setStateAsync("floorheating.flow_temp_setpoint", spVal, true);
+
+            // Forward to configured FBH flow setpoint target object
+            if (this.config.fbhEnabled && this.config.fbhFlowSetpointTargetId) {
+                await this.setForeignStateAsync(this.config.fbhFlowSetpointTargetId.trim(), spVal);
+            }
         }
+
         if (data.screed_soc_pct !== undefined) {
-            await this.setStateAsync("status.screed_soc", Number(data.screed_soc_pct), true);
+            const socVal = Number(data.screed_soc_pct);
+            await this.setStateAsync("status.screed_soc", socVal, true);
+            await this.setStateAsync("floorheating.screed_soc", socVal, true);
         }
+
         if (data.mode !== undefined) {
             await this.setStateAsync("status.operating_mode", String(data.mode), true);
+            await this.setStateAsync("floorheating.operating_mode", String(data.mode), true);
         }
+
         if (data.floor_heating_boost !== undefined || data.action === "FLOOR_HEATING_BOOST") {
             const boostActive = Boolean(data.floor_heating_boost ?? (data.action === "FLOOR_HEATING_BOOST"));
             await this.setStateAsync("control.floor_heating_boost", boostActive, true);
+            await this.setStateAsync("floorheating.boost_active", boostActive, true);
+
+            if (this.config.fbhEnabled && this.config.fbhBoostTargetId) {
+                await this.setForeignStateAsync(this.config.fbhBoostTargetId.trim(), boostActive);
+            }
         }
+
         if (data.bwwp_boost !== undefined) {
             await this.setStateAsync("control.bwwp_boost", Boolean(data.bwwp_boost), true);
+        }
+
+        // 3. Dedicated Floor Heating Relay Actuator Direct Command
+        if (this.config.fbhEnabled && this.config.fbhRelayTargetId) {
+            let targetRelay = null;
+            if (data.action === "Switch.Set" || data.method === "Switch.Set") {
+                targetRelay = data.params?.on;
+            } else if (data.relay_state !== undefined) {
+                targetRelay = Boolean(data.relay_state);
+            } else if (data.identifier === "floor_heating_relay" && data.val !== undefined) {
+                targetRelay = Boolean(data.val);
+            }
+
+            if (targetRelay !== null && targetRelay !== undefined) {
+                let finalRelay = targetRelay;
+                if (this.config.fbhRelayInvert) finalRelay = !finalRelay;
+                this.log.info(`Executing Floor Heating Relay: Setting [${finalRelay}] to [${this.config.fbhRelayTargetId}]`);
+                await this.setForeignStateAsync(this.config.fbhRelayTargetId.trim(), finalRelay);
+                await this.setStateAsync("floorheating.relay_state", Boolean(targetRelay), true);
+            }
         }
 
         // Check if bidirectional control is enabled
@@ -636,7 +892,7 @@ class SharegyAdapter extends utils.Adapter {
             return;
         }
 
-        // 1. Shelly RPC Relay Command: {"method": "Switch.Set", "params": {"id": 0, "on": true}}
+        // 4. Shelly RPC Relay Command: {"method": "Switch.Set", "params": {"id": 0, "on": true}}
         if (data.method && data.method.startsWith("Switch.")) {
             const onVal = data.params?.on;
             if (onVal !== undefined && Array.isArray(this.config.controlObjects)) {
@@ -651,7 +907,7 @@ class SharegyAdapter extends utils.Adapter {
             }
         }
 
-        // 2. Standard Sharegy Command: {"identifier": "bwwp_sg_ready", "val": true}
+        // 5. Standard Sharegy Command: {"identifier": "bwwp_sg_ready", "val": true}
         const identifier = data.identifier || data.device || data.src;
         if (identifier && Array.isArray(this.config.controlObjects)) {
             for (const ctrl of this.config.controlObjects) {
@@ -695,23 +951,59 @@ class SharegyAdapter extends utils.Adapter {
 
         const rawVal = data.val !== undefined ? data.val : (data.value !== undefined ? data.value : (data.state !== undefined ? data.state : data));
 
-        // Update live status & setpoints
+        // 1. Process 24h MPC Schedule sync & timeline caching
+        const timeline = data.timeline || (data.predictive_mpc && data.predictive_mpc.timeline);
+        if (Array.isArray(timeline) && timeline.length > 0) {
+            this.cachedSchedule24h = timeline;
+            await this.setStateAsync("floorheating.cached_schedule", JSON.stringify(timeline), true);
+            this.log.info(`Updated and cached 24h predictive MPC schedule (${timeline.length} hourly slots).`);
+        }
+
+        // 2. Update live status & setpoints
         if (data.flow_temp_setpoint_c !== undefined) {
-            await this.setStateAsync("status.flow_temp_setpoint", Number(data.flow_temp_setpoint_c), true);
+            const spVal = Number(data.flow_temp_setpoint_c);
+            await this.setStateAsync("status.flow_temp_setpoint", spVal, true);
+            await this.setStateAsync("floorheating.flow_temp_setpoint", spVal, true);
+
+            if (this.config.fbhEnabled && this.config.fbhFlowSetpointTargetId) {
+                await this.setForeignStateAsync(this.config.fbhFlowSetpointTargetId.trim(), spVal);
+            }
         }
+
         if (data.screed_soc_pct !== undefined) {
-            await this.setStateAsync("status.screed_soc", Number(data.screed_soc_pct), true);
+            const socVal = Number(data.screed_soc_pct);
+            await this.setStateAsync("status.screed_soc", socVal, true);
+            await this.setStateAsync("floorheating.screed_soc", socVal, true);
         }
+
         if (data.mode !== undefined) {
             await this.setStateAsync("status.operating_mode", String(data.mode), true);
+            await this.setStateAsync("floorheating.operating_mode", String(data.mode), true);
         }
+
         if (data.floor_heating_boost !== undefined || data.action === "FLOOR_HEATING_BOOST" || identifier === "floor_heating_boost") {
             const boostActive = Boolean(data.floor_heating_boost ?? (data.action === "FLOOR_HEATING_BOOST" || rawVal === true || rawVal === 1));
             await this.setStateAsync("control.floor_heating_boost", boostActive, true);
+            await this.setStateAsync("floorheating.boost_active", boostActive, true);
+
+            if (this.config.fbhEnabled && this.config.fbhBoostTargetId) {
+                await this.setForeignStateAsync(this.config.fbhBoostTargetId.trim(), boostActive);
+            }
         }
+
         if (data.bwwp_boost !== undefined || identifier === "bwwp_boost") {
             const bwwpActive = Boolean(data.bwwp_boost ?? (rawVal === true || rawVal === 1));
             await this.setStateAsync("control.bwwp_boost", bwwpActive, true);
+        }
+
+        // 3. Dedicated Floor Heating Relay Actuator Direct Command
+        if (this.config.fbhEnabled && this.config.fbhRelayTargetId && (identifier === "floor_heating" || identifier === "floor_heating_relay")) {
+            let targetRelay = (rawVal === true || rawVal === "true" || rawVal === 1 || rawVal === "1" || rawVal === "ON" || rawVal === "on");
+            let finalRelay = targetRelay;
+            if (this.config.fbhRelayInvert) finalRelay = !finalRelay;
+            this.log.info(`Executing Floor Heating Relay via MQTT: Setting [${finalRelay}] to [${this.config.fbhRelayTargetId}]`);
+            await this.setForeignStateAsync(this.config.fbhRelayTargetId.trim(), finalRelay);
+            await this.setStateAsync("floorheating.relay_state", Boolean(targetRelay), true);
         }
 
         // Check if bidirectional control is enabled
@@ -739,6 +1031,112 @@ class SharegyAdapter extends utils.Adapter {
                     await this.setForeignStateAsync(targetId, finalVal);
                 }
             }
+        }
+    }
+
+    /**
+     * Local 24h Offline-Resilience Controller Loop (Executed every 60s)
+     * Keeps floor heating fully functional & executes pre-calculated MPC schedule when offline
+     */
+    async runOfflineHeatingLoop() {
+        if (!this.config.fbhEnabled) {
+            return;
+        }
+
+        // If cloud connection is online, cloud orchestrates in real time
+        if (this.isConnectionActive()) {
+            await this.setStateAsync("floorheating.offline_autonomous", false, true);
+            return;
+        }
+
+        // Offline mode: mark indicator
+        await this.setStateAsync("floorheating.offline_autonomous", true, true);
+
+        if (this.config.fbhOfflineResilience === false) {
+            this.log.debug("Offline resilience disabled in config, skipping autonomous heating loop.");
+            return;
+        }
+
+        if (!this.config.fbhRoomTempId || !this.config.fbhRelayTargetId) {
+            return;
+        }
+
+        try {
+            // Read current local room temperature
+            const roomTempState = await this.getForeignStateAsync(this.config.fbhRoomTempId.trim());
+            if (!roomTempState || roomTempState.val === null || roomTempState.val === undefined) {
+                this.log.warn(`[Offline-Resilience] Could not read room temperature from ${this.config.fbhRoomTempId}`);
+                return;
+            }
+
+            const currentRoomTemp = Number(roomTempState.val);
+            const targetRoomTemp = Number(this.config.fbhTargetRoomTemp) || 21.0;
+            const boostDelta = Number(this.config.fbhBoostDeltaK) || 1.0;
+            const maxFloorTemp = Number(this.config.fbhMaxFloorTemp) || 24.5;
+            const currentHour = new Date().getHours();
+
+            // Find current hourly slot from cached schedule
+            let currentSlot = null;
+            if (Array.isArray(this.cachedSchedule24h) && this.cachedSchedule24h.length > 0) {
+                const now = new Date();
+                const nowHourStr = `${String(currentHour).padStart(2, "0")}:00`;
+                currentSlot = this.cachedSchedule24h.find(s => s.hour_label === nowHourStr) || this.cachedSchedule24h[0];
+            }
+
+            let shouldHeat = false;
+            let decisionReason = "";
+
+            // A) Overheating protection
+            if (currentRoomTemp >= maxFloorTemp) {
+                shouldHeat = false;
+                decisionReason = `🛡️ Overheat protection (${currentRoomTemp.toFixed(1)}°C >= ${maxFloorTemp.toFixed(1)}°C)`;
+            }
+            // B) Comfort lower bound guarantee
+            else if (currentRoomTemp < (targetRoomTemp - 0.5)) {
+                shouldHeat = true;
+                decisionReason = `❄️ Comfort protection (${currentRoomTemp.toFixed(1)}°C < ${targetRoomTemp - 0.5}°C)`;
+            }
+            // C) Schedule-based autonomous decision
+            else if (currentSlot) {
+                if (currentSlot.action_mode === "preheat") {
+                    const maxPreheat = targetRoomTemp + boostDelta;
+                    shouldHeat = (currentRoomTemp < maxPreheat);
+                    decisionReason = `⚡ Autonomous 24h-Schedule Preheat (Target: ${maxPreheat.toFixed(1)}°C, Ist: ${currentRoomTemp.toFixed(1)}°C)`;
+                } else if (currentSlot.action_mode === "coast") {
+                    shouldHeat = false;
+                    decisionReason = `🛋️ Autonomous Screed Coasting (${currentRoomTemp.toFixed(1)}°C >= ${targetRoomTemp.toFixed(1)}°C)`;
+                } else if (currentSlot.action_mode === "heat") {
+                    shouldHeat = (currentRoomTemp < targetRoomTemp);
+                    decisionReason = `♨️ Autonomous Base Heat (Target: ${targetRoomTemp.toFixed(1)}°C, Ist: ${currentRoomTemp.toFixed(1)}°C)`;
+                } else {
+                    shouldHeat = false;
+                    decisionReason = "⏸️ Autonomous Standby";
+                }
+            }
+            // D) Fallback thermostat hysteresis (no schedule available)
+            else {
+                shouldHeat = (currentRoomTemp < targetRoomTemp);
+                decisionReason = `🛋️ Offline Fallback Thermostat (${currentRoomTemp.toFixed(1)}°C vs ${targetRoomTemp.toFixed(1)}°C)`;
+            }
+
+            // Apply to Actuator Relay
+            let finalRelayVal = shouldHeat;
+            if (this.config.fbhRelayInvert) finalRelayVal = !finalRelayVal;
+
+            await this.setForeignStateAsync(this.config.fbhRelayTargetId.trim(), finalRelayVal);
+            await this.setStateAsync("floorheating.relay_state", shouldHeat, true);
+
+            // Apply Flow Setpoint if target configured and slot has opt_flow_temp_c
+            if (this.config.fbhFlowSetpointTargetId && currentSlot && currentSlot.opt_flow_temp_c) {
+                const optFlow = Number(currentSlot.opt_flow_temp_c);
+                await this.setForeignStateAsync(this.config.fbhFlowSetpointTargetId.trim(), optFlow);
+                await this.setStateAsync("floorheating.flow_temp_setpoint", optFlow, true);
+            }
+
+            this.log.info(`[Offline-Resilience 🛡️] ${decisionReason} -> Relay ${shouldHeat ? "ON" : "OFF"} on [${this.config.fbhRelayTargetId}]`);
+
+        } catch (e) {
+            this.log.error(`[Offline-Resilience] Error during autonomous heating loop: ${e.message}`);
         }
     }
 
@@ -778,14 +1176,11 @@ class SharegyAdapter extends utils.Adapter {
                 clearTimeout(this.throttleTimer);
                 this.throttleTimer = null;
             }
-            if (this.wsClient) {
-                try { this.wsClient.close(); } catch (e) {}
-                this.wsClient = null;
+            if (this.offlineLoopTimer) {
+                clearInterval(this.offlineLoopTimer);
+                this.offlineLoopTimer = null;
             }
-            if (this.mqttClient) {
-                this.mqttClient.end(true);
-                this.mqttClient = null;
-            }
+            this.cleanupSockets();
             this.setState("info.connection", false, true);
             this.log.info("Sharegy adapter stopped cleanly.");
             callback();
