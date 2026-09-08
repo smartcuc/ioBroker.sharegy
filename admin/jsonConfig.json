@@ -533,24 +533,6 @@
           "hidden": "!data.fbhEnabled",
           "sm": 12,
           "md": 6
-        },
-        "dividerFbhOffline": {
-          "type": "divider",
-          "hidden": "!data.fbhEnabled"
-        },
-        "headerFbhOffline": {
-          "type": "header",
-          "text": "4. Lokale 24h-Offline-Resilienz (Autonomes Heizen ohne Internet)",
-          "hidden": "!data.fbhEnabled"
-        },
-        "fbhOfflineResilience": {
-          "type": "checkbox",
-          "label": "🛡️ 24h-Fahrplan lokal im ioBroker cachen & bei Ausfall autonom steuern",
-          "default": true,
-          "help": "Gewährleistet Heizbetrieb und Estrich-Vorladung auch bei DSL-Ausfall, Router-Neustart oder Server-Wartung",
-          "hidden": "!data.fbhEnabled",
-          "sm": 12,
-          "md": 12
         }
       }
     }

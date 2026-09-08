@@ -89,8 +89,7 @@
     "fbhBoostDeltaK": 1.0,
     "fbhMaxFloorTemp": 24.5,
     "fbhMinPvSurplusW": 1000,
-    "fbhMaxSpotPriceCt": 16.0,
-    "fbhOfflineResilience": true
+    "fbhMaxSpotPriceCt": 16.0
   },
   "objects": [],
   "instanceObjects": [

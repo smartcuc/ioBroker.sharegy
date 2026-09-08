@@ -8,7 +8,7 @@
 
 const utils = require("@iobroker/adapter-core");
 const mqtt = require("mqtt");
-const WebSocket = globalThis.WebSocket || require("ws");
+const WebSocket = require("ws");
 
 const CANONICAL_METRIC_UNITS = {
     temperature: "°C",
@@ -37,6 +37,7 @@ class SharegyAdapter extends utils.Adapter {
         this.reconnectTimer = null;
         this.reconnectAttempts = 0;
         this.heartbeatTimer = null;
+        this.livenessTimer = null;
         this.lastHeartbeatTimestamp = 0;
         this.offlineLoopTimer = null;
         this.cachedSchedule24h = [];
@@ -118,6 +119,17 @@ class SharegyAdapter extends utils.Adapter {
         this.offlineLoopTimer = setInterval(() => {
             this.runOfflineHeatingLoop();
         }, 60000);
+
+        // Start 20s Liveness Fallback Watchdog (ensures auto-recovery if any event was dropped)
+        if (this.livenessTimer) {
+            clearInterval(this.livenessTimer);
+        }
+        this.livenessTimer = setInterval(() => {
+            if (!this.isConnectionActive() && !this.reconnectTimer) {
+                this.log.debug("Liveness watchdog: Connection inactive and no retry timer pending. Triggering reconnect...");
+                this.scheduleReconnect(1000);
+            }
+        }, 20000);
     }
 
     /**
@@ -130,25 +142,27 @@ class SharegyAdapter extends utils.Adapter {
         }
 
         if (this.wsClient) {
+            const client = this.wsClient;
+            this.wsClient = null;
             try {
-                this.wsClient.onopen = null;
-                this.wsClient.onmessage = null;
-                this.wsClient.onerror = null;
-                this.wsClient.onclose = null;
-                if (typeof this.wsClient.terminate === "function") {
-                    this.wsClient.terminate();
-                } else {
-                    this.wsClient.close();
+                client.removeAllListeners();
+                client.on("error", () => {});
+                if (typeof client.terminate === "function") {
+                    client.terminate();
+                } else if (typeof client.close === "function") {
+                    client.close();
                 }
             } catch (e) {}
-            this.wsClient = null;
         }
 
         if (this.mqttClient) {
-            try {
-                this.mqttClient.end(true);
-            } catch (e) {}
+            const client = this.mqttClient;
             this.mqttClient = null;
+            try {
+                client.removeAllListeners();
+                client.on("error", () => {});
+                client.end(true);
+            } catch (e) {}
         }
     }
 
@@ -157,8 +171,7 @@ class SharegyAdapter extends utils.Adapter {
      */
     scheduleReconnect(forcedDelayMs = null) {
         if (this.reconnectTimer) {
-            clearTimeout(this.reconnectTimer);
-            this.reconnectTimer = null;
+            return; // Reconnect is already queued, avoid double timers
         }
 
         this.setState("info.connection", false, true);
@@ -166,9 +179,9 @@ class SharegyAdapter extends utils.Adapter {
         this.reconnectAttempts++;
         let delay = forcedDelayMs;
         if (delay === null || delay === undefined) {
-            // Exponential backoff: 2s -> 3s -> 4.5s -> 6.75s -> ... capped at 30s
-            const backoff = Math.min(30000, 2000 * Math.pow(1.5, Math.min(this.reconnectAttempts - 1, 8)));
-            const jitter = Math.floor(Math.random() * 800);
+            // Exponential backoff: 2s -> 3s -> 4.5s -> 6.75s -> ... capped at 25s
+            const backoff = Math.min(25000, 2000 * Math.pow(1.5, Math.min(this.reconnectAttempts - 1, 7)));
+            const jitter = Math.floor(Math.random() * 500);
             delay = Math.round(backoff + jitter);
         }
 
@@ -199,7 +212,7 @@ class SharegyAdapter extends utils.Adapter {
 
             // 1. Send Ping Frame
             const proto = (this.config.protocol || "wss").toLowerCase();
-            if (proto === "wss" && this.wsClient && this.wsClient.readyState === 1) {
+            if (proto === "wss" && this.wsClient && this.wsClient.readyState === WebSocket.OPEN) {
                 try {
                     if (typeof this.wsClient.ping === "function") {
                         this.wsClient.ping();
@@ -211,9 +224,9 @@ class SharegyAdapter extends utils.Adapter {
                 }
             }
 
-            // 2. Check if server answered within 45s
-            if (this.lastHeartbeatTimestamp > 0 && (now - this.lastHeartbeatTimestamp > 45000)) {
-                this.log.warn("Sharegy connection watchdog: Heartbeat lost (no response for >45s). Forcing reconnect...");
+            // 2. Check if server answered within 40s
+            if (this.lastHeartbeatTimestamp > 0 && (now - this.lastHeartbeatTimestamp > 40000)) {
+                this.log.warn("Sharegy connection watchdog: Heartbeat lost (no response for >40s). Forcing reconnect...");
                 this.cleanupSockets();
                 this.scheduleReconnect(1000);
             }
@@ -255,9 +268,12 @@ class SharegyAdapter extends utils.Adapter {
             this.log.info(`Connecting to Sharegy via Secure WebSocket (WSS) at ${wsUrl}...`);
 
             try {
-                this.wsClient = new WebSocket(wsUrl);
+                this.wsClient = new WebSocket(wsUrl, {
+                    handshakeTimeout: 10000,
+                    perMessageDeflate: false,
+                });
 
-                this.wsClient.onopen = () => {
+                this.wsClient.on("open", () => {
                     this.log.info("Connected to Sharegy WebSocket (WSS) successfully!");
                     this.reconnectAttempts = 0;
                     this.lastHeartbeatTimestamp = Date.now();
@@ -267,23 +283,30 @@ class SharegyAdapter extends utils.Adapter {
                     this.startHeartbeatWatchdog();
                     this.drainOfflineBuffer();
                     this.publishAllStates();
-                };
+                });
 
-                this.wsClient.onmessage = (event) => {
+                this.wsClient.on("message", (data) => {
                     this.lastHeartbeatTimestamp = Date.now();
-                    this.handleIncomingWsMessage(event.data);
-                };
+                    this.handleIncomingWsMessage(data);
+                });
 
-                this.wsClient.onerror = (err) => {
+                this.wsClient.on("pong", () => {
+                    this.lastHeartbeatTimestamp = Date.now();
+                });
+
+                this.wsClient.on("error", (err) => {
                     this.log.warn(`WebSocket error: ${err.message || err}`);
                     this.setState("info.connection", false, true);
-                };
-
-                this.wsClient.onclose = (event) => {
-                    this.log.warn(`WebSocket connection closed (code: ${event?.code || "-"}, reason: ${event?.reason || "none"}).`);
                     this.cleanupSockets();
                     this.scheduleReconnect();
-                };
+                });
+
+                this.wsClient.on("close", (code, reason) => {
+                    this.log.warn(`WebSocket connection closed (code: ${code || "-"}, reason: ${reason || "none"}).`);
+                    this.setState("info.connection", false, true);
+                    this.cleanupSockets();
+                    this.scheduleReconnect();
+                });
 
             } catch (e) {
                 this.log.error(`Failed to initiate WebSocket connection: ${e.message}`);
@@ -349,6 +372,7 @@ class SharegyAdapter extends utils.Adapter {
             this.mqttClient.on("error", (err) => {
                 this.log.warn(`MQTT Error: ${err.message}`);
                 this.setState("info.connection", false, true);
+                this.scheduleReconnect();
             });
 
             this.mqttClient.on("close", () => {
@@ -372,7 +396,7 @@ class SharegyAdapter extends utils.Adapter {
     isConnectionActive() {
         const proto = (this.config.protocol || "wss").toLowerCase();
         if (proto === "wss") {
-            return this.wsClient && this.wsClient.readyState === 1; // 1 = OPEN
+            return this.wsClient && this.wsClient.readyState === WebSocket.OPEN;
         }
         return this.mqttClient && this.mqttClient.connected;
     }
@@ -750,7 +774,7 @@ class SharegyAdapter extends utils.Adapter {
     sendTelemetryPacket(topic, payload) {
         const proto = (this.config.protocol || "wss").toLowerCase();
         if (proto === "wss") {
-            if (this.wsClient && this.wsClient.readyState === 1) {
+            if (this.wsClient && this.wsClient.readyState === WebSocket.OPEN) {
                 this.wsClient.send(JSON.stringify(payload));
                 this.log.debug(`Sent via WSS: ${JSON.stringify(payload)}`);
                 return true;
@@ -1052,11 +1076,6 @@ class SharegyAdapter extends utils.Adapter {
         // Offline mode: mark indicator
         await this.setStateAsync("floorheating.offline_autonomous", true, true);
 
-        if (this.config.fbhOfflineResilience === false) {
-            this.log.debug("Offline resilience disabled in config, skipping autonomous heating loop.");
-            return;
-        }
-
         if (!this.config.fbhRoomTempId || !this.config.fbhRelayTargetId) {
             return;
         }
@@ -1078,7 +1097,6 @@ class SharegyAdapter extends utils.Adapter {
             // Find current hourly slot from cached schedule
             let currentSlot = null;
             if (Array.isArray(this.cachedSchedule24h) && this.cachedSchedule24h.length > 0) {
-                const now = new Date();
                 const nowHourStr = `${String(currentHour).padStart(2, "0")}:00`;
                 currentSlot = this.cachedSchedule24h.find(s => s.hour_label === nowHourStr) || this.cachedSchedule24h[0];
             }
@@ -1179,6 +1197,10 @@ class SharegyAdapter extends utils.Adapter {
             if (this.offlineLoopTimer) {
                 clearInterval(this.offlineLoopTimer);
                 this.offlineLoopTimer = null;
+            }
+            if (this.livenessTimer) {
+                clearInterval(this.livenessTimer);
+                this.livenessTimer = null;
             }
             this.cleanupSockets();
             this.setState("info.connection", false, true);
