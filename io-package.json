@@ -1,8 +1,12 @@
 {
   "common": {
     "name": "sharegy",
-    "version": "2.1.0",
+    "version": "2.2.0",
     "news": {
+      "2.2.0": {
+        "en": "Harden reconnection resilience with exponential backoff & liveness watchdog, add 24h autonomous offline schedule caching and dedicated floor heating tab",
+        "de": "Robuste Wiederverbindung mit exponentiellem Backoff & Liveness-Watchdog, 24h-Offline-Fahrplan-Caching und eigener Fußbodenheizungs-Tab"
+      },
       "2.1.0": {
         "en": "Add bidirectional floor heating thermal battery dispatch (DIN EN 12831), BWWP boost and WSS priority",
         "de": "Unterstützung für bidirektionale Fußbodenheizungs- & Estrichspeicher-Steuerung (DIN EN 12831), BWWP-Boost und WSS-Priorisierung"
