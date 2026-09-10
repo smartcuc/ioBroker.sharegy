@@ -263,6 +263,9 @@ class SharegyAdapter extends utils.Adapter {
                 if (!wsUrl.endsWith("/")) {
                     wsUrl += "/";
                 }
+                if (!wsUrl.includes("?")) {
+                    wsUrl += "?client=iobroker&source=iobroker&version=2.1.0";
+                }
             }
 
             this.log.info(`Connecting to Sharegy via Secure WebSocket (WSS) at ${wsUrl}...`);
