@@ -8,6 +8,8 @@ Connects your ioBroker Smart Home (PV systems, battery storages, heat pumps, flo
 - ☀️ **Realtime EMS Telemetry** (Live energy flow, PV generation, grid feed-in/import, battery SoC)
 - 🔥 **Wärme, Heizung & Raumklima (DIN EN 12831 / MPC)**: Vorausschauende Fußbodenheizungs- & thermische Estrichspeicher-Steuerung
 - 🛡️ **Lokale 24h-Offline-Resilienz**: Cacht den 24h-MPC-Fahrplan lokal und regelt die Heizung bei Internetausfall vollkommen autonom weiter
+- 🛰️ **24/7 Entkoppelter Carrier Admin & Reverse-RPC**: Sichere Fernwartung, § 14a EnWG Notfalldrosselung und Echtzeit-Konfigurationsvalidierung ohne Port-Weiterleitung
+- 🔄 **Canary A/B OTA Updates & 15-Minuten Rollback-Watchdog**: Selbstheilendes Flottenmanagement – schlägt ein Remote-Update fehl, stellt ein unabhängiger Hintergrundwächter nach 15 Minuten automatisch die funktionierende Vorversion wieder her
 - 🌡️ **Custom Devices & Sensoren**: Wärmepumpen, Brauchwasserwärmepumpen, Raumtemperatursensoren, Submeter
 - 🎛️ **Bidirektionales Lastmanagement & SG-Ready**: Direkte Ansteuerung von ioBroker-Aktoren und Vorgabe von Sollwerten aus der Sharegy KI-Merit-Order
 
