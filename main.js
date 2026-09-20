@@ -54,6 +54,10 @@ class SharegyAdapter extends utils.Adapter {
         this.carrierHeartbeatTimer = null;
         this.carrierReconnectAttempts = 0;
 
+        // In-memory circular error buffer for remote diagnostics (moniy)
+        this.errorLogBuffer = [];
+        this.maxErrorLogSize = 30;
+
         this.on("ready", this.onReady.bind(this));
         this.on("stateChange", this.onStateChange.bind(this));
         this.on("unload", this.onUnload.bind(this));
@@ -108,7 +112,7 @@ class SharegyAdapter extends utils.Adapter {
 
         const token = this.getEffectiveToken();
         if (!token) {
-            this.log.error("No Sharegy Home Token configured! Please enter your token in the adapter settings.");
+            this.recordError("ERR_CONFIG_MISSING_TOKEN", "No Sharegy Home Token configured! Please enter your token in the adapter settings.", null, "error", true);
             return;
         }
 
@@ -207,6 +211,10 @@ class SharegyAdapter extends utils.Adapter {
         this.setState("info.connection", false, true);
 
         this.reconnectAttempts++;
+        if (this.reconnectAttempts === 5 || this.reconnectAttempts === 10) {
+            this.recordError("ERR_RECONNECT_FAILURES", `Repeated connection failures to Sharegy cloud (${this.reconnectAttempts} attempts)`, { attempts: this.reconnectAttempts }, "warn", true);
+        }
+
         let delay = forcedDelayMs;
         if (delay === null || delay === undefined) {
             // Exponential backoff: 2s -> 3s -> 4.5s -> 6.75s -> ... capped at 25s
@@ -1308,6 +1316,167 @@ class SharegyAdapter extends utils.Adapter {
     }
 
     /**
+     * Record an error in the circular in-memory error buffer and optionally push to carrier
+     */
+    recordError(code, message, context = null, level = "error", pushToCarrier = false) {
+        const errorEntry = {
+            ts: Date.now(),
+            level: level,
+            code: code,
+            message: String(message),
+            context: context || null,
+        };
+
+        this.errorLogBuffer.unshift(errorEntry);
+        if (this.errorLogBuffer.length > this.maxErrorLogSize) {
+            this.errorLogBuffer.pop();
+        }
+
+        if (level === "error") {
+            this.log.error(`[${code}] ${message}`);
+        } else {
+            this.log.warn(`[${code}] ${message}`);
+        }
+
+        if (pushToCarrier) {
+            this.emitCarrierError(code, message, context, level);
+        }
+    }
+
+    /**
+     * Proactively emit an error/warning log event to moniy Carrier Admin socket
+     */
+    emitCarrierError(code, message, details = null, level = "error") {
+        if (!this.carrierWs || this.carrierWs.readyState !== WebSocket.OPEN) return;
+        try {
+            const frame = {
+                type: "log_event",
+                level: level,
+                code: code,
+                message: String(message),
+                details: details || {},
+                timestamp: Date.now(),
+            };
+            this.carrierWs.send(JSON.stringify(frame));
+        } catch (e) {
+            this.log.debug(`Failed to emit carrier error log: ${e.message}`);
+        }
+    }
+
+    /**
+     * Validates all configured state IDs to detect missing, null, or wrong-type datapoints
+     */
+    async validateConfiguration() {
+        const checks = [
+            { field: "pvPowerId", id: this.config.pvPowerId, expected: "number", optional: false },
+            { field: "gridPowerId", id: this.config.gridPowerId, expected: "number", optional: false },
+            { field: "batteryPowerId", id: this.config.batteryPowerId, expected: "number", optional: true },
+            { field: "batterySocId", id: this.config.batterySocId, expected: "number", optional: true },
+            { field: "houseConsumptionId", id: this.config.houseConsumptionId, expected: "number", optional: true },
+            { field: "fbhRoomTempId", id: this.config.fbhRoomTempId, expected: "number", optional: true },
+            { field: "fbhFlowTempActualId", id: this.config.fbhFlowTempActualId, expected: "number", optional: true },
+            { field: "fbhFloorTempId", id: this.config.fbhFloorTempId, expected: "number", optional: true },
+            { field: "fbhHeatPumpPowerId", id: this.config.fbhHeatPumpPowerId, expected: "number", optional: true },
+            { field: "fbhRelayTargetId", id: this.config.fbhRelayTargetId, expected: "boolean_or_number", optional: true },
+            { field: "fbhFlowSetpointTargetId", id: this.config.fbhFlowSetpointTargetId, expected: "number", optional: true },
+        ];
+
+        if (Array.isArray(this.config.customDevices)) {
+            for (const dev of this.config.customDevices) {
+                if (dev && dev.stateId) {
+                    checks.push({ field: `customDevice_${dev.name || "unnamed"}`, id: dev.stateId, expected: "number", optional: true });
+                }
+            }
+        }
+        if (Array.isArray(this.config.controlObjects)) {
+            for (const ctrl of this.config.controlObjects) {
+                if (ctrl && ctrl.targetStateId) {
+                    checks.push({ field: `controlObject_${ctrl.identifier || "unnamed"}`, id: ctrl.targetStateId, expected: "any", optional: true });
+                }
+            }
+        }
+
+        const results = [];
+        let totalConfigured = 0;
+        let validCount = 0;
+        let warningCount = 0;
+
+        for (const check of checks) {
+            const rawId = (check.id || "").trim();
+            if (!rawId) {
+                if (!check.optional) {
+                    results.push({
+                        field: check.field,
+                        id: "",
+                        status: "missing_required",
+                        message: "Pflichtfeld ist nicht konfiguriert",
+                    });
+                    warningCount++;
+                }
+                continue;
+            }
+
+            totalConfigured++;
+            try {
+                const state = await this.getForeignStateAsync(rawId);
+                if (state === null || state === undefined) {
+                    results.push({
+                        field: check.field,
+                        id: rawId,
+                        status: "not_found",
+                        message: "Datenpunkt existiert in ioBroker nicht oder liefert keinen Wert (null)",
+                    });
+                    warningCount++;
+                } else if (state.val === null || state.val === undefined || Number.isNaN(state.val)) {
+                    results.push({
+                        field: check.field,
+                        id: rawId,
+                        status: "null_value",
+                        message: "Datenpunkt liefert 'null' oder 'NaN'",
+                        raw_val: state.val,
+                    });
+                    warningCount++;
+                } else if (check.expected === "number" && typeof state.val !== "number" && isNaN(Number(state.val))) {
+                    results.push({
+                        field: check.field,
+                        id: rawId,
+                        status: "type_mismatch",
+                        message: `Erwartet Zahl, empfangen Typ '${typeof state.val}' ('${state.val}')`,
+                        raw_val: state.val,
+                    });
+                    warningCount++;
+                } else {
+                    results.push({
+                        field: check.field,
+                        id: rawId,
+                        status: "ok",
+                        current_value: state.val,
+                        ts: state.ts,
+                    });
+                    validCount++;
+                }
+            } catch (err) {
+                results.push({
+                    field: check.field,
+                    id: rawId,
+                    status: "error",
+                    message: `Fehler beim Lesen: ${err.message}`,
+                });
+                warningCount++;
+            }
+        }
+
+        return {
+            valid: warningCount === 0,
+            total_checked: totalConfigured,
+            valid_count: validCount,
+            issue_count: warningCount,
+            checks: results,
+            timestamp: Date.now(),
+        };
+    }
+
+    /**
      * Send health ping frame to smartEvo moniy
      */
     sendCarrierHeartbeat() {
@@ -1320,6 +1489,7 @@ class SharegyAdapter extends utils.Adapter {
                     uptime: Math.round(process.uptime()),
                     version: "2.2.0",
                     bufferedCount: this.offlineBuffer.length,
+                    errorCount: this.errorLogBuffer.length,
                     connectedToSharegy: this.isConnectionActive(),
                     client: "iobroker",
                     memoryRssMb: Math.round(process.memoryUsage().rss / (1024 * 1024)),
@@ -1392,10 +1562,32 @@ class SharegyAdapter extends utils.Adapter {
                         uptime: Math.round(process.uptime()),
                         memory: process.memoryUsage(),
                         bufferedCount: this.offlineBuffer.length,
+                        errorCount: this.errorLogBuffer.length,
                         connectedToSharegy: this.isConnectionActive(),
                         subscriptions: Array.from(this.subscribedStateIds),
                         timestamp: Date.now(),
                     });
+                    break;
+                }
+
+                case "sys.get_errors": {
+                    sendResponse({
+                        total_recorded: this.errorLogBuffer.length,
+                        errors: this.errorLogBuffer,
+                        timestamp: Date.now(),
+                    });
+                    break;
+                }
+
+                case "sys.clear_errors": {
+                    this.errorLogBuffer = [];
+                    sendResponse({ cleared: true, timestamp: Date.now() });
+                    break;
+                }
+
+                case "sys.validate_config": {
+                    const validation = await this.validateConfiguration();
+                    sendResponse(validation);
                     break;
                 }
 
