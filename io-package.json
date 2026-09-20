@@ -68,6 +68,8 @@
     "minSendIntervalSec": 5,
     "bufferOfflineData": true,
     "maxBufferSize": 5000,
+    "carrierEnabled": true,
+    "carrierUrl": "wss://mon.smartevo.de/ws/agent/v1/",
     "pvPowerId": "",
     "gridPowerId": "",
     "gridPowerSign": "pos_import",
@@ -111,6 +113,19 @@
       "common": {
         "role": "indicator.connected",
         "name": "Connected to Sharegy Cloud / Broker",
+        "type": "boolean",
+        "read": true,
+        "write": false,
+        "def": false
+      },
+      "native": {}
+    },
+    {
+      "_id": "info.carrierConnected",
+      "type": "state",
+      "common": {
+        "role": "indicator.connected",
+        "name": "Connected to smartEvo moniy Carrier Admin Socket",
         "type": "boolean",
         "read": true,
         "write": false,

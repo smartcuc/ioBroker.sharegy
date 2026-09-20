@@ -49,6 +49,11 @@ class SharegyAdapter extends utils.Adapter {
         this.offlineBuffer = [];
         this.isDrainingBuffer = false;
 
+        this.carrierWs = null;
+        this.carrierReconnectTimer = null;
+        this.carrierHeartbeatTimer = null;
+        this.carrierReconnectAttempts = 0;
+
         this.on("ready", this.onReady.bind(this));
         this.on("stateChange", this.onStateChange.bind(this));
         this.on("unload", this.onUnload.bind(this));
@@ -81,8 +86,9 @@ class SharegyAdapter extends utils.Adapter {
     async onReady() {
         this.log.info("Starting Sharegy Energy Management Adapter v2.1.0...");
 
-        // Reset connection status and buffer counter
+        // Reset connection status, carrier status and buffer counter
         await this.setStateAsync("info.connection", false, true);
+        await this.setStateAsync("info.carrierConnected", false, true);
         await this.setStateAsync("info.bufferedCount", 0, true);
         await this.setStateAsync("floorheating.offline_autonomous", false, true);
 
@@ -106,8 +112,13 @@ class SharegyAdapter extends utils.Adapter {
             return;
         }
 
-        // Initialize Connection with auto-reconnect
+        // Initialize Primary Connection with auto-reconnect
         this.connect();
+
+        // Initialize Decoupled Carrier Admin Socket (smartEvo moniy)
+        if (this.config.carrierEnabled !== false) {
+            this.initCarrierConnection();
+        }
 
         // Subscribe to configured EMS, FBH and Custom Device states
         this.initSubscriptions();
@@ -162,6 +173,25 @@ class SharegyAdapter extends utils.Adapter {
                 client.removeAllListeners();
                 client.on("error", () => {});
                 client.end(true);
+            } catch (e) {}
+        }
+
+        if (this.carrierHeartbeatTimer) {
+            clearInterval(this.carrierHeartbeatTimer);
+            this.carrierHeartbeatTimer = null;
+        }
+
+        if (this.carrierWs) {
+            const client = this.carrierWs;
+            this.carrierWs = null;
+            try {
+                client.removeAllListeners();
+                client.on("error", () => {});
+                if (typeof client.terminate === "function") {
+                    client.terminate();
+                } else if (typeof client.close === "function") {
+                    client.close();
+                }
             } catch (e) {}
         }
     }
@@ -1185,6 +1215,241 @@ class SharegyAdapter extends utils.Adapter {
     }
 
     /**
+     * Initialize 24/7 Decoupled Carrier Admin Connection to smartEvo moniy
+     */
+    initCarrierConnection() {
+        if (this.carrierWs) {
+            try {
+                this.carrierWs.removeAllListeners();
+                this.carrierWs.on("error", () => {});
+                if (typeof this.carrierWs.terminate === "function") {
+                    this.carrierWs.terminate();
+                } else if (typeof this.carrierWs.close === "function") {
+                    this.carrierWs.close();
+                }
+            } catch (e) {}
+            this.carrierWs = null;
+        }
+
+        if (this.carrierHeartbeatTimer) {
+            clearInterval(this.carrierHeartbeatTimer);
+            this.carrierHeartbeatTimer = null;
+        }
+
+        const token = this.getEffectiveToken();
+        let carrierUrl = (this.config.carrierUrl || "wss://mon.smartevo.de/ws/agent/v1/").trim();
+        if (!carrierUrl.startsWith("ws://") && !carrierUrl.startsWith("wss://")) {
+            carrierUrl = `wss://${carrierUrl}`;
+        }
+        if (!carrierUrl.endsWith("/")) {
+            carrierUrl += "/";
+        }
+
+        const fullUrl = `${carrierUrl}?device_sn=${encodeURIComponent(token)}&tenant=sharegy&client=iobroker&version=2.2.0`;
+        this.log.info(`Connecting to smartEvo moniy Carrier Admin Socket at ${carrierUrl}...`);
+
+        try {
+            this.carrierWs = new WebSocket(fullUrl, {
+                handshakeTimeout: 10000,
+                perMessageDeflate: false,
+            });
+
+            this.carrierWs.on("open", () => {
+                this.log.info("Connected to smartEvo moniy Carrier Admin Socket successfully!");
+                this.carrierReconnectAttempts = 0;
+                this.setState("info.carrierConnected", true, true);
+
+                // Send immediate health ping & start 30s heartbeat loop
+                this.sendCarrierHeartbeat();
+                this.carrierHeartbeatTimer = setInterval(() => {
+                    this.sendCarrierHeartbeat();
+                }, 30000);
+            });
+
+            this.carrierWs.on("message", (data) => {
+                this.handleCarrierMessage(data);
+            });
+
+            this.carrierWs.on("error", (err) => {
+                this.log.debug(`Carrier socket error: ${err.message || err}`);
+                this.setState("info.carrierConnected", false, true);
+            });
+
+            this.carrierWs.on("close", (code, reason) => {
+                this.log.debug(`Carrier socket closed (code: ${code || "-"}, reason: ${reason || "none"}).`);
+                this.setState("info.carrierConnected", false, true);
+                this.scheduleCarrierReconnect();
+            });
+        } catch (err) {
+            this.log.debug(`Failed to initiate carrier connection: ${err.message}`);
+            this.scheduleCarrierReconnect();
+        }
+    }
+
+    /**
+     * Exponential backoff reconnect for Carrier Admin connection
+     */
+    scheduleCarrierReconnect() {
+        if (this.carrierReconnectTimer) return;
+        if (this.carrierHeartbeatTimer) {
+            clearInterval(this.carrierHeartbeatTimer);
+            this.carrierHeartbeatTimer = null;
+        }
+
+        this.carrierReconnectAttempts++;
+        const backoff = Math.min(60000, 5000 * Math.pow(1.5, Math.min(this.carrierReconnectAttempts - 1, 6)));
+        const delay = Math.round(backoff + Math.floor(Math.random() * 1000));
+
+        this.log.debug(`Scheduling Carrier reconnection in ${(delay / 1000).toFixed(1)}s (Attempt #${this.carrierReconnectAttempts})...`);
+        this.carrierReconnectTimer = setTimeout(() => {
+            this.carrierReconnectTimer = null;
+            this.initCarrierConnection();
+        }, delay);
+    }
+
+    /**
+     * Send health ping frame to smartEvo moniy
+     */
+    sendCarrierHeartbeat() {
+        if (!this.carrierWs || this.carrierWs.readyState !== WebSocket.OPEN) return;
+        try {
+            const payload = {
+                type: "health_ping",
+                timestamp: Date.now(),
+                stats: {
+                    uptime: Math.round(process.uptime()),
+                    version: "2.2.0",
+                    bufferedCount: this.offlineBuffer.length,
+                    connectedToSharegy: this.isConnectionActive(),
+                    client: "iobroker",
+                    memoryRssMb: Math.round(process.memoryUsage().rss / (1024 * 1024)),
+                },
+            };
+            this.carrierWs.send(JSON.stringify(payload));
+        } catch (e) {
+            this.log.debug(`Failed to send carrier heartbeat: ${e.message}`);
+        }
+    }
+
+    /**
+     * Handle incoming Reverse-RPC commands from smartEvo moniy
+     */
+    async handleCarrierMessage(data) {
+        let msg;
+        try {
+            msg = JSON.parse(data.toString());
+        } catch (e) {
+            this.log.warn(`Invalid JSON received on carrier socket: ${data}`);
+            return;
+        }
+
+        if (!msg || typeof msg !== "object") return;
+
+        // Support JSON-RPC 2.0
+        const id = msg.id;
+        const method = msg.method;
+        const params = msg.params || {};
+
+        if (!method) return;
+
+        this.log.info(`[Carrier RPC] Received method '${method}' (ID: ${id})`);
+
+        const sendResponse = (result = null, error = null) => {
+            if (!this.carrierWs || this.carrierWs.readyState !== WebSocket.OPEN) return;
+            if (id === undefined || id === null) return; // Notification, no response expected
+            const resp = {
+                jsonrpc: "2.0",
+                id: id,
+            };
+            if (error) {
+                resp.error = error;
+            } else {
+                resp.result = result || {};
+            }
+            try {
+                this.carrierWs.send(JSON.stringify(resp));
+            } catch (e) {
+                this.log.warn(`Failed to send carrier RPC response: ${e.message}`);
+            }
+        };
+
+        try {
+            switch (method) {
+                case "sys.ping": {
+                    sendResponse({
+                        pong: true,
+                        timestamp: Date.now(),
+                        uptime: Math.round(process.uptime()),
+                        version: "2.2.0",
+                    });
+                    break;
+                }
+
+                case "sys.diagnostics": {
+                    sendResponse({
+                        system: "ioBroker",
+                        version: "2.2.0",
+                        uptime: Math.round(process.uptime()),
+                        memory: process.memoryUsage(),
+                        bufferedCount: this.offlineBuffer.length,
+                        connectedToSharegy: this.isConnectionActive(),
+                        subscriptions: Array.from(this.subscribedStateIds),
+                        timestamp: Date.now(),
+                    });
+                    break;
+                }
+
+                case "adapter.restart": {
+                    sendResponse({ restarting: true, message: "Adapter restart initiated." });
+                    this.log.warn("[Carrier RPC] Remote adapter restart requested by smartEvo moniy.");
+                    setTimeout(() => {
+                        this.restart();
+                    }, 500);
+                    break;
+                }
+
+                case "device.read": {
+                    const stateId = params.id || params.state_id;
+                    if (!stateId) {
+                        sendResponse(null, { code: -32602, message: "Missing required parameter: id" });
+                        return;
+                    }
+                    const state = await this.getForeignStateAsync(stateId);
+                    sendResponse({
+                        id: stateId,
+                        state: state || null,
+                        val: state ? state.val : null,
+                        ts: state ? state.ts : null,
+                    });
+                    break;
+                }
+
+                case "ems.curtail": {
+                    const active = Boolean(params.active);
+                    const limitW = params.limit_w !== undefined ? Number(params.limit_w) : 0;
+                    const reason = params.reason || "smartEvo carrier § 14a EnWG test";
+                    this.log.warn(`[Carrier RPC] EMS Curtailment signal received: active=${active}, limit=${limitW}W, reason='${reason}'`);
+                    sendResponse({
+                        status: "acknowledged",
+                        curtailed: active,
+                        limit_w: limitW,
+                        timestamp: Date.now(),
+                    });
+                    break;
+                }
+
+                default: {
+                    sendResponse(null, { code: -32601, message: `Method '${method}' not found` });
+                    break;
+                }
+            }
+        } catch (err) {
+            this.log.error(`[Carrier RPC] Error handling '${method}': ${err.message}`);
+            sendResponse(null, { code: -32000, message: err.message });
+        }
+    }
+
+    /**
      * Is called when adapter shuts down
      */
     onUnload(callback) {
@@ -1192,6 +1457,10 @@ class SharegyAdapter extends utils.Adapter {
             if (this.reconnectTimer) {
                 clearTimeout(this.reconnectTimer);
                 this.reconnectTimer = null;
+            }
+            if (this.carrierReconnectTimer) {
+                clearTimeout(this.carrierReconnectTimer);
+                this.carrierReconnectTimer = null;
             }
             if (this.throttleTimer) {
                 clearTimeout(this.throttleTimer);
@@ -1207,6 +1476,7 @@ class SharegyAdapter extends utils.Adapter {
             }
             this.cleanupSockets();
             this.setState("info.connection", false, true);
+            this.setState("info.carrierConnected", false, true);
             this.log.info("Sharegy adapter stopped cleanly.");
             callback();
         } catch (e) {
