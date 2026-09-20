@@ -10,6 +10,7 @@ const utils = require("@iobroker/adapter-core");
 const mqtt = require("mqtt");
 const WebSocket = require("ws");
 const UpdateWatchdog = require("./lib/updateWatchdog");
+const AutoDiscoveryScanner = require("./lib/autoDiscovery");
 
 const CANONICAL_METRIC_UNITS = {
     temperature: "°C",
@@ -61,6 +62,9 @@ class SharegyAdapter extends utils.Adapter {
 
         // Canary A/B OTA Remote Update Watchdog
         this.updateWatchdog = new UpdateWatchdog(this);
+
+        // Smart Auto-Discovery Engine
+        this.autoDiscovery = new AutoDiscoveryScanner(this);
 
         this.on("ready", this.onReady.bind(this));
         this.on("stateChange", this.onStateChange.bind(this));
@@ -1666,6 +1670,13 @@ class SharegyAdapter extends utils.Adapter {
 
                 case "adapter.get_update_status": {
                     const result = this.updateWatchdog.getStatus();
+                    sendResponse(result);
+                    break;
+                }
+
+                case "device.discover":
+                case "edge.discover_datapoints": {
+                    const result = await this.autoDiscovery.scan();
                     sendResponse(result);
                     break;
                 }
