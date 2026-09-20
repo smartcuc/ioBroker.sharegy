@@ -1555,7 +1555,8 @@ class SharegyAdapter extends utils.Adapter {
                     break;
                 }
 
-                case "sys.diagnostics": {
+                case "sys.diagnostics":
+                case "edge.get_diagnostics": {
                     sendResponse({
                         system: "ioBroker",
                         version: "2.2.0",
@@ -1591,7 +1592,8 @@ class SharegyAdapter extends utils.Adapter {
                     break;
                 }
 
-                case "adapter.restart": {
+                case "adapter.restart":
+                case "edge.restart_service": {
                     sendResponse({ restarting: true, message: "Adapter restart initiated." });
                     this.log.warn("[Carrier RPC] Remote adapter restart requested by smartEvo moniy.");
                     setTimeout(() => {
@@ -1616,9 +1618,10 @@ class SharegyAdapter extends utils.Adapter {
                     break;
                 }
 
-                case "ems.curtail": {
-                    const active = Boolean(params.active);
-                    const limitW = params.limit_w !== undefined ? Number(params.limit_w) : 0;
+                case "ems.curtail":
+                case "eebus.curtail": {
+                    const active = Boolean(params.active !== undefined ? params.active : (params.limit_kw !== undefined || params.limit_w !== undefined));
+                    const limitW = params.limit_w !== undefined ? Number(params.limit_w) : (params.limit_kw !== undefined ? Number(params.limit_kw) * 1000 : 0);
                     const reason = params.reason || "smartEvo carrier § 14a EnWG test";
                     this.log.warn(`[Carrier RPC] EMS Curtailment signal received: active=${active}, limit=${limitW}W, reason='${reason}'`);
                     sendResponse({
