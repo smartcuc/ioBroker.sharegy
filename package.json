@@ -34,10 +34,11 @@
     "mqtt": "^5.3.5",
     "ws": "^8.18.0"
   },
-  "devDependencies": {
-    "@iobroker/testing": "^4.1.0"
-  },
   "main": "main.js",
+  "scripts": {
+    "test": "node --test",
+    "check-version": "node -e \"const p=require('./package.json'), io=require('./io-package.json'); if(p.version !== io.common.version) { console.error('Version mismatch: package.json ('+p.version+') !== io-package.json ('+io.common.version+')'); process.exit(1); } console.log('Version match OK: ' + p.version);\""
+  },
   "files": [
     "admin{,/!(src)/**/{*.*,.*}}",
     "admin/*",

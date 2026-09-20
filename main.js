@@ -9,6 +9,8 @@
 const utils = require("@iobroker/adapter-core");
 const mqtt = require("mqtt");
 const WebSocket = require("ws");
+const pkg = require("./package.json");
+const ADAPTER_VERSION = (pkg && pkg.version) || "2.2.0";
 const UpdateWatchdog = require("./lib/updateWatchdog");
 const AutoDiscoveryScanner = require("./lib/autoDiscovery");
 
@@ -324,7 +326,7 @@ class SharegyAdapter extends utils.Adapter {
                     wsUrl += "/";
                 }
                 if (!wsUrl.includes("?")) {
-                    wsUrl += "?client=iobroker&source=iobroker&version=2.1.0";
+                    wsUrl += `?client=iobroker&source=iobroker&version=${encodeURIComponent(ADAPTER_VERSION)}`;
                 }
             }
 
@@ -1268,7 +1270,7 @@ class SharegyAdapter extends utils.Adapter {
             carrierUrl += "/";
         }
 
-        const fullUrl = `${carrierUrl}?device_sn=${encodeURIComponent(token)}&tenant=sharegy&client=iobroker&version=2.2.0`;
+        const fullUrl = `${carrierUrl}?device_sn=${encodeURIComponent(token)}&tenant=sharegy&client=iobroker&version=${encodeURIComponent(ADAPTER_VERSION)}`;
         this.log.info(`Connecting to smartEvo moniy Carrier Admin Socket at ${carrierUrl}...`);
 
         try {
@@ -1519,7 +1521,7 @@ class SharegyAdapter extends utils.Adapter {
                 stats: {
                     uptime: Math.round(process.uptime()),
                     osUptime: Math.round(os.uptime()),
-                    version: "2.2.0",
+                    version: ADAPTER_VERSION,
                     bufferedCount: this.offlineBuffer.length,
                     errorCount: this.errorLogBuffer.length,
                     connectedToSharegy: this.isConnectionActive(),
@@ -1590,7 +1592,7 @@ class SharegyAdapter extends utils.Adapter {
                         pong: true,
                         timestamp: Date.now(),
                         uptime: Math.round(process.uptime()),
-                        version: "2.2.0",
+                        version: ADAPTER_VERSION,
                     });
                     break;
                 }
@@ -1599,7 +1601,7 @@ class SharegyAdapter extends utils.Adapter {
                 case "edge.get_diagnostics": {
                     sendResponse({
                         system: "ioBroker",
-                        version: "2.2.0",
+                        version: ADAPTER_VERSION,
                         uptime: Math.round(process.uptime()),
                         memory: process.memoryUsage(),
                         bufferedCount: this.offlineBuffer.length,
