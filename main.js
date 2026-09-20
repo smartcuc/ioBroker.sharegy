@@ -98,7 +98,7 @@ class SharegyAdapter extends utils.Adapter {
      * Is called when databases are connected and adapter received configuration.
      */
     async onReady() {
-        this.log.info("Starting Sharegy Energy Management Adapter v2.1.0...");
+        this.log.info(`Starting Sharegy Energy Management Adapter v${ADAPTER_VERSION}...`);
 
         // Reset connection status, carrier status and buffer counter
         await this.setStateAsync("info.connection", false, true);

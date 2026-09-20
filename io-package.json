@@ -1,8 +1,12 @@
 {
   "common": {
     "name": "sharegy",
-    "version": "2.2.0",
+    "version": "2.2.1",
     "news": {
+      "2.2.1": {
+        "en": "Multi-client separation, permanent offline ring buffer, enhanced host telemetry & Canary A/B OTA rollback watchdog",
+        "de": "Multi-Client-Trennung, permanenter Offline-Ringpuffer, erweiterte Host-Telemetrie und Canary A/B OTA Rollback-Watchdog"
+      },
       "2.2.0": {
         "en": "Harden reconnection resilience with exponential backoff & liveness watchdog, add 24h autonomous offline schedule caching and dedicated floor heating tab",
         "de": "Robuste Wiederverbindung mit exponentiellem Backoff & Liveness-Watchdog, 24h-Offline-Fahrplan-Caching und eigener Fußbodenheizungs-Tab"
