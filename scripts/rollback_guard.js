@@ -45,12 +45,17 @@ function executeRollback(state) {
     state.rollback_triggered_at = Date.now();
     writeState(state);
 
-    const npmCmd = `npm install --save ${prevSpec}`;
-    console.log(`[RollbackGuard] Running: ${npmCmd} in ${cwd}`);
+    let prevUrl = prevSpec;
+    if (!prevUrl.startsWith("http") && !prevUrl.startsWith("git@") && prevUrl.includes("/")) {
+        prevUrl = `https://github.com/${prevUrl.replace(/^github:/, "")}`;
+    }
 
-    exec(npmCmd, { cwd: cwd, timeout: 180000 }, (err, stdout, stderr) => {
+    const rollbackCmd = `iobroker url "${prevUrl}" || (npm install --save "${prevUrl}" && (iobroker upload sharegy || true))`;
+    console.log(`[RollbackGuard] Running rollback: ${rollbackCmd} in ${cwd}`);
+
+    exec(rollbackCmd, { cwd: cwd, timeout: 180000, env: process.env }, (err, stdout, stderr) => {
         if (err) {
-            console.error(`[RollbackGuard] Rollback npm install failed: ${err.message}`);
+            console.error(`[RollbackGuard] Rollback install failed: ${err.message}`);
         } else {
             console.log(`[RollbackGuard] Rollback install output:\n${stdout}`);
         }
