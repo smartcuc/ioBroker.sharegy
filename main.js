@@ -9,6 +9,7 @@
 const utils = require("@iobroker/adapter-core");
 const mqtt = require("mqtt");
 const WebSocket = require("ws");
+const UpdateWatchdog = require("./lib/updateWatchdog");
 
 const CANONICAL_METRIC_UNITS = {
     temperature: "°C",
@@ -58,6 +59,9 @@ class SharegyAdapter extends utils.Adapter {
         this.errorLogBuffer = [];
         this.maxErrorLogSize = 30;
 
+        // Canary A/B OTA Remote Update Watchdog
+        this.updateWatchdog = new UpdateWatchdog(this);
+
         this.on("ready", this.onReady.bind(this));
         this.on("stateChange", this.onStateChange.bind(this));
         this.on("unload", this.onUnload.bind(this));
@@ -95,6 +99,11 @@ class SharegyAdapter extends utils.Adapter {
         await this.setStateAsync("info.carrierConnected", false, true);
         await this.setStateAsync("info.bufferedCount", 0, true);
         await this.setStateAsync("floorheating.offline_autonomous", false, true);
+
+        // Check if booted under pending OTA update verification window
+        if (this.updateWatchdog) {
+            this.updateWatchdog.checkPendingUpdateOnStartup();
+        }
 
         // Load cached schedule from persisted state if available
         try {
@@ -1630,6 +1639,34 @@ class SharegyAdapter extends utils.Adapter {
                         limit_w: limitW,
                         timestamp: Date.now(),
                     });
+                    break;
+                }
+
+                case "adapter.update":
+                case "edge.update": {
+                    const targetSpec = params.target || params.version || params.target_version || "smartcuc/ioBroker.sharegy#main";
+                    const timeoutSec = Number(params.timeout_seconds || params.timeout || 900);
+                    const result = await this.updateWatchdog.initiateUpdate(targetSpec, timeoutSec);
+                    sendResponse(result);
+                    break;
+                }
+
+                case "adapter.confirm_update": {
+                    const reason = params.reason || "manual_admin_rpc";
+                    const result = this.updateWatchdog.confirmUpdate(reason);
+                    sendResponse(result);
+                    break;
+                }
+
+                case "adapter.rollback": {
+                    const result = this.updateWatchdog.triggerImmediateRollback();
+                    sendResponse(result);
+                    break;
+                }
+
+                case "adapter.get_update_status": {
+                    const result = this.updateWatchdog.getStatus();
+                    sendResponse(result);
                     break;
                 }
 
