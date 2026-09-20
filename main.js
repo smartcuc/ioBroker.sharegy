@@ -768,40 +768,33 @@ class SharegyAdapter extends utils.Adapter {
         const isConnected = this.isConnectionActive();
         const token = this.getEffectiveToken();
         const nowSec = Math.floor(Date.now() / 1000);
-        const shouldBuffer = this.config.bufferOfflineData !== false;
-        const maxBuffer = Math.max(100, Number(this.config.maxBufferSize) || 5000);
-
-        // If offline: push into offline ring buffer
+        // If offline: push into offline ring buffer (Permanent Store & Forward Resilience)
         if (!isConnected) {
-            if (shouldBuffer) {
-                for (const [key, t] of this.pendingUpdates.entries()) {
-                    const topic = `h/${token}/${t.identifier}`;
-                    const payload = {
-                        val: t.value !== undefined ? t.value : t.val,
-                        value: t.value !== undefined ? t.value : t.val,
-                        state: t.state,
-                        relay_state: t.relay_state,
-                        unit: t.unit,
-                        metric: t.metric,
-                        role: t.role,
-                        ts: nowSec,
-                        source: "iobroker.sharegy",
-                        device: t.identifier,
-                        id: t.identifier,
-                    };
+            for (const [key, t] of this.pendingUpdates.entries()) {
+                const topic = `h/${token}/${t.identifier}`;
+                const payload = {
+                    val: t.value !== undefined ? t.value : t.val,
+                    value: t.value !== undefined ? t.value : t.val,
+                    state: t.state,
+                    relay_state: t.relay_state,
+                    unit: t.unit,
+                    metric: t.metric,
+                    role: t.role,
+                    ts: nowSec,
+                    source: "iobroker.sharegy",
+                    device: t.identifier,
+                    id: t.identifier,
+                };
 
-                    this.offlineBuffer.push({ topic, payload });
+                this.offlineBuffer.push({ topic, payload });
 
-                    while (this.offlineBuffer.length > maxBuffer) {
-                        this.offlineBuffer.shift();
-                    }
+                while (this.offlineBuffer.length > maxBuffer) {
+                    this.offlineBuffer.shift();
                 }
-
-                this.setState("info.bufferedCount", this.offlineBuffer.length, true);
-                this.log.debug(`Connection offline: Queued ${this.pendingUpdates.size} packets in offline buffer (Total buffered: ${this.offlineBuffer.length})`);
-            } else {
-                this.log.debug("Connection offline and buffering disabled, dropping telemetry update.");
             }
+
+            this.setState("info.bufferedCount", this.offlineBuffer.length, true);
+            this.log.debug(`Connection offline: Queued ${this.pendingUpdates.size} packets in offline buffer (Total buffered: ${this.offlineBuffer.length})`);
 
             this.pendingUpdates.clear();
             return;
@@ -1510,22 +1503,36 @@ class SharegyAdapter extends utils.Adapter {
     }
 
     /**
-     * Send health ping frame to smartEvo moniy
+     * Send health ping frame to smartEvo moniy with enhanced host & runtime telemetry
      */
     sendCarrierHeartbeat() {
         if (!this.carrierWs || this.carrierWs.readyState !== WebSocket.OPEN) return;
         try {
+            const os = require("os");
+            const memUsage = process.memoryUsage();
+            const totalMem = os.totalmem();
+            const freeMem = os.freemem();
+
             const payload = {
                 type: "health_ping",
                 timestamp: Date.now(),
                 stats: {
                     uptime: Math.round(process.uptime()),
+                    osUptime: Math.round(os.uptime()),
                     version: "2.2.0",
                     bufferedCount: this.offlineBuffer.length,
                     errorCount: this.errorLogBuffer.length,
                     connectedToSharegy: this.isConnectionActive(),
                     client: "iobroker",
-                    memoryRssMb: Math.round(process.memoryUsage().rss / (1024 * 1024)),
+                    memoryRssMb: Math.round(memUsage.rss / (1024 * 1024)),
+                    heapUsedMb: Math.round(memUsage.heapUsed / (1024 * 1024)),
+                    heapTotalMb: Math.round(memUsage.heapTotal / (1024 * 1024)),
+                    osTotalMemMb: Math.round(totalMem / (1024 * 1024)),
+                    osFreeMemMb: Math.round(freeMem / (1024 * 1024)),
+                    nodeVersion: process.version,
+                    platform: process.platform,
+                    arch: process.arch,
+                    loadAvg1m: os.loadavg ? Number(os.loadavg()[0].toFixed(2)) : 0.0,
                 },
             };
             this.carrierWs.send(JSON.stringify(payload));

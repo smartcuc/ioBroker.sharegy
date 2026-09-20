@@ -97,25 +97,17 @@
           "max": 300,
           "help": "Drosselung bei hochfrequenten ioBroker-Updates",
           "sm": 12,
-          "md": 4
-        },
-        "bufferOfflineData": {
-          "type": "checkbox",
-          "label": "📦 Offline-Pufferung aktivieren (Messdaten bei Verbindungsabbruch zwischenspeichern)",
-          "default": true,
-          "help": "Verhindert Lücken in der Energiebilanz bei DSL-/Router-Neuverbindung oder Server-Wartung",
-          "sm": 12,
-          "md": 8
+          "md": 6
         },
         "maxBufferSize": {
           "type": "number",
-          "label": "Max. gepufferte Datenpunkte (Ringpuffer)",
+          "label": "Max. gepufferte Datenpunkte (Permanenter Offline-Ringpuffer)",
           "default": 5000,
           "min": 100,
           "max": 50000,
-          "help": "Schützt den RAM von ioBroker bei tagelangem Internetausfall",
+          "help": "Offline-Pufferung ist immer aktiv und schützt lückenlos vor Datenverlust bei Internetausfall",
           "sm": 12,
-          "md": 4
+          "md": 6
         }
       }
     },
