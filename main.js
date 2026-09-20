@@ -135,6 +135,15 @@ class SharegyAdapter extends utils.Adapter {
         // Initialize Decoupled Carrier Admin Socket (smartEvo moniy)
         if (this.config.carrierEnabled !== false) {
             this.initCarrierConnection();
+
+            // Periodic Liveness Watchdog: Reconnect if socket dropped without close event
+            if (this.carrierLivenessTimer) clearInterval(this.carrierLivenessTimer);
+            this.carrierLivenessTimer = setInterval(() => {
+                if (!this.carrierWs || this.carrierWs.readyState === WebSocket.CLOSED || this.carrierWs.readyState === WebSocket.CLOSING) {
+                    this.log.debug("[Carrier Watchdog] Socket inactive, ensuring reconnection...");
+                    this.initCarrierConnection();
+                }
+            }, 30000);
         }
 
         // Subscribe to configured EMS, FBH and Custom Device states
@@ -1271,7 +1280,7 @@ class SharegyAdapter extends utils.Adapter {
 
         try {
             this.carrierWs = new WebSocket(fullUrl, {
-                handshakeTimeout: 10000,
+                handshakeTimeout: 8000,
                 perMessageDeflate: false,
             });
 
@@ -1280,11 +1289,12 @@ class SharegyAdapter extends utils.Adapter {
                 this.carrierReconnectAttempts = 0;
                 this.setState("info.carrierConnected", true, true);
 
-                // Send immediate health ping & start 30s heartbeat loop
+                // Send immediate health ping & start 20s heartbeat loop
                 this.sendCarrierHeartbeat();
+                if (this.carrierHeartbeatTimer) clearInterval(this.carrierHeartbeatTimer);
                 this.carrierHeartbeatTimer = setInterval(() => {
                     this.sendCarrierHeartbeat();
-                }, 30000);
+                }, 20000);
             });
 
             this.carrierWs.on("message", (data) => {
@@ -1294,11 +1304,20 @@ class SharegyAdapter extends utils.Adapter {
             this.carrierWs.on("error", (err) => {
                 this.log.debug(`Carrier socket error: ${err.message || err}`);
                 this.setState("info.carrierConnected", false, true);
+                if (this.carrierWs) {
+                    try { this.carrierWs.terminate(); } catch (e) {}
+                    this.carrierWs = null;
+                }
+                this.scheduleCarrierReconnect();
             });
 
             this.carrierWs.on("close", (code, reason) => {
                 this.log.debug(`Carrier socket closed (code: ${code || "-"}, reason: ${reason || "none"}).`);
                 this.setState("info.carrierConnected", false, true);
+                if (this.carrierWs) {
+                    try { this.carrierWs.terminate(); } catch (e) {}
+                    this.carrierWs = null;
+                }
                 this.scheduleCarrierReconnect();
             });
         } catch (err) {
@@ -1318,8 +1337,9 @@ class SharegyAdapter extends utils.Adapter {
         }
 
         this.carrierReconnectAttempts++;
-        const backoff = Math.min(60000, 5000 * Math.pow(1.5, Math.min(this.carrierReconnectAttempts - 1, 6)));
-        const delay = Math.round(backoff + Math.floor(Math.random() * 1000));
+        // Fast retry: 3s -> 4.5s -> 6.7s -> 10s -> max 25s
+        const backoff = Math.min(25000, 3000 * Math.pow(1.5, Math.min(this.carrierReconnectAttempts - 1, 5)));
+        const delay = Math.round(backoff + Math.floor(Math.random() * 500));
 
         this.log.debug(`Scheduling Carrier reconnection in ${(delay / 1000).toFixed(1)}s (Attempt #${this.carrierReconnectAttempts})...`);
         this.carrierReconnectTimer = setTimeout(() => {
@@ -1704,6 +1724,10 @@ class SharegyAdapter extends utils.Adapter {
             if (this.carrierReconnectTimer) {
                 clearTimeout(this.carrierReconnectTimer);
                 this.carrierReconnectTimer = null;
+            }
+            if (this.carrierLivenessTimer) {
+                clearInterval(this.carrierLivenessTimer);
+                this.carrierLivenessTimer = null;
             }
             if (this.throttleTimer) {
                 clearTimeout(this.throttleTimer);
