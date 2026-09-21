@@ -1,8 +1,12 @@
 {
   "common": {
     "name": "sharegy",
-    "version": "2.2.1",
+    "version": "2.2.2",
     "news": {
+      "2.2.2": {
+        "en": "Fix ReferenceError maxBuffer in flushPendingUpdates during offline buffering",
+        "de": "Behebt ReferenceError maxBuffer in flushPendingUpdates beim Offline-Puffern"
+      },
       "2.2.1": {
         "en": "Multi-client separation, permanent offline ring buffer, enhanced host telemetry & Canary A/B OTA rollback watchdog",
         "de": "Multi-Client-Trennung, permanenter Offline-Ringpuffer, erweiterte Host-Telemetrie und Canary A/B OTA Rollback-Watchdog"

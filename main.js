@@ -772,6 +772,7 @@ class SharegyAdapter extends utils.Adapter {
         const nowSec = Math.floor(Date.now() / 1000);
         // If offline: push into offline ring buffer (Permanent Store & Forward Resilience)
         if (!isConnected) {
+            const maxBuffer = Number(this.config.maxBufferSize) || 5000;
             for (const [key, t] of this.pendingUpdates.entries()) {
                 const topic = `h/${token}/${t.identifier}`;
                 const payload = {
