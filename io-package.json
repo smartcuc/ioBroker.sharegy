@@ -1,8 +1,12 @@
 {
   "common": {
     "name": "sharegy",
-    "version": "2.2.3",
+    "version": "2.2.4",
     "news": {
+      "2.2.4": {
+        "en": "Auto-migrate legacy smartevo hosts, support raw token input in WebSocket URL field, rename carrier to Sharegy MON",
+        "de": "Automatische Migration veralteter smartevo-Hosts, Unterstützung direkter Token-Eingabe im WebSocket-Feld, Umbenennung Carrier auf Sharegy MON"
+      },
       "2.2.3": {
         "en": "Update default MON carrier URL to wss://mon.sharegy.de/ws/agent/v1/",
         "de": "Standard-Carrier-URL auf wss://mon.sharegy.de/ws/agent/v1/ aktualisiert"
@@ -137,7 +141,7 @@
       "type": "state",
       "common": {
         "role": "indicator.connected",
-        "name": "Connected to smartEvo moniy Carrier Admin Socket",
+        "name": "Connected to Sharegy MON Carrier Admin Socket",
         "type": "boolean",
         "read": true,
         "write": false,

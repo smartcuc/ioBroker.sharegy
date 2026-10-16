@@ -77,19 +77,24 @@ class SharegyAdapter extends utils.Adapter {
      * Extracts or resolves the effective Sharegy Home Token
      */
     getEffectiveToken() {
-        const proto = (this.config.protocol || "wss").toLowerCase();
-        if (this.config.wsUrl) {
-            const urlStr = this.config.wsUrl.trim();
-            const match = urlStr.match(/\/ws\/energy\/([a-zA-Z0-9_-]+)/);
-            if (match && match[1]) {
-                return match[1].trim();
-            }
+        // 1. Direct token fields
+        if (this.config.token && this.config.token.trim()) {
+            return this.config.token.trim();
         }
         if (this.config.mqttToken && this.config.mqttToken.trim()) {
             return this.config.mqttToken.trim();
         }
-        if (this.config.token && this.config.token.trim()) {
-            return this.config.token.trim();
+        // 2. Extracted from wsUrl
+        if (this.config.wsUrl) {
+            let urlStr = this.config.wsUrl.trim();
+            // If user entered only the raw token or UUID directly into the wsUrl field
+            if (/^[a-zA-Z0-9_-]{8,64}$/.test(urlStr)) {
+                return urlStr;
+            }
+            const match = urlStr.match(/\/ws\/energy\/([a-zA-Z0-9_-]+)/);
+            if (match && match[1]) {
+                return match[1].trim();
+            }
         }
         return "";
     }
@@ -134,7 +139,7 @@ class SharegyAdapter extends utils.Adapter {
         // Initialize Primary Connection with auto-reconnect
         this.connect();
 
-        // Initialize Decoupled Carrier Admin Socket (smartEvo moniy)
+        // Initialize Decoupled Carrier Admin Socket (Sharegy MON)
         if (this.config.carrierEnabled !== false) {
             this.initCarrierConnection();
 
@@ -309,10 +314,20 @@ class SharegyAdapter extends utils.Adapter {
         // ==========================================
         if (proto === "wss") {
             let wsUrl = (this.config.wsUrl || "").trim();
-            const host = (this.config.host || "sharegy.de").trim();
+            let host = (this.config.host || "sharegy.de").trim();
 
-            if (!wsUrl) {
-                wsUrl = `wss://${host}/ws/energy/${token ? token + "/" : ""}`;
+            // Auto-migrate legacy smartevo hosts
+            if (host.includes("smartevo.de")) {
+                host = "sharegy.de";
+            }
+            if (wsUrl.includes("smartevo.de")) {
+                wsUrl = wsUrl.replace("sharegy.smartevo.de", "sharegy.de")
+                             .replace("moniy.smartevo.de", "sharegy.de")
+                             .replace("smartevo.de", "sharegy.de");
+            }
+
+            if (!wsUrl || /^[a-zA-Z0-9_-]{8,64}$/.test(wsUrl)) {
+                wsUrl = `wss://sharegy.de/ws/energy/${token ? token + "/" : ""}`;
             } else {
                 if (wsUrl.startsWith("http://")) wsUrl = wsUrl.replace("http://", "ws://");
                 else if (wsUrl.startsWith("https://")) wsUrl = wsUrl.replace("https://", "wss://");
@@ -1264,6 +1279,10 @@ class SharegyAdapter extends utils.Adapter {
 
         const token = this.getEffectiveToken();
         let carrierUrl = (this.config.carrierUrl || "wss://mon.sharegy.de/ws/agent/v1/").trim();
+        // Auto-migrate legacy carrier domains
+        if (carrierUrl.includes("smartevo.de") || carrierUrl.includes("moniy.sharegy.de")) {
+            carrierUrl = "wss://mon.sharegy.de/ws/agent/v1/";
+        }
         if (!carrierUrl.startsWith("ws://") && !carrierUrl.startsWith("wss://")) {
             carrierUrl = `wss://${carrierUrl}`;
         }
@@ -1272,7 +1291,7 @@ class SharegyAdapter extends utils.Adapter {
         }
 
         const fullUrl = `${carrierUrl}?device_sn=${encodeURIComponent(token)}&token=${encodeURIComponent(token)}&tenant=sharegy&client=iobroker&version=${encodeURIComponent(ADAPTER_VERSION)}`;
-        this.log.info(`Connecting to smartEvo moniy Carrier Admin Socket at ${carrierUrl}...`);
+        this.log.info(`Connecting to Sharegy MON Carrier Admin Socket at ${carrierUrl}...`);
 
         try {
             this.carrierWs = new WebSocket(fullUrl, {
@@ -1281,7 +1300,7 @@ class SharegyAdapter extends utils.Adapter {
             });
 
             this.carrierWs.on("open", () => {
-                this.log.info("Connected to smartEvo moniy Carrier Admin Socket successfully!");
+                this.log.info("Connected to Sharegy MON Carrier Admin Socket successfully!");
                 this.carrierReconnectAttempts = 0;
                 this.setState("info.carrierConnected", true, true);
 
@@ -1638,7 +1657,7 @@ class SharegyAdapter extends utils.Adapter {
                 case "adapter.restart":
                 case "edge.restart_service": {
                     sendResponse({ restarting: true, message: "Adapter restart initiated." });
-                    this.log.warn("[Carrier RPC] Remote adapter restart requested by smartEvo moniy.");
+                    this.log.warn("[Carrier RPC] Remote adapter restart requested by Sharegy MON.");
                     setTimeout(() => {
                         this.restart();
                     }, 500);

@@ -31,10 +31,10 @@
         },
         "wsUrl": {
           "type": "text",
-          "label": "WebSocket URL (Copy & Paste aus Sharegy Schnittstellen)",
+          "label": "Sharegy WebSocket URL oder Home Token",
           "default": "wss://sharegy.de/ws/energy/",
-          "placeholder": "wss://sharegy.de/ws/energy/48f9d3b1-7a2e-4b9c-8512-32a10e7b89f0/",
-          "help": "Kopiere die vollständige WebSocket-URL mit 1 Klick aus deinen Sharegy-Schnittstellen",
+          "placeholder": "z. B. d12bc2d0-6828-46 oder wss://sharegy.de/ws/energy/d12bc2d0-6828-46/",
+          "help": "Gib dein Home Token (z. B. d12bc2d0-6828-46) oder die vollständige URL wss://sharegy.de/ws/energy/<TOKEN>/ ein",
           "hidden": "data.protocol !== 'wss'",
           "sm": 12,
           "md": 12
