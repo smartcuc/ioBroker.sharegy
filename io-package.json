@@ -77,7 +77,7 @@
     "bufferOfflineData": true,
     "maxBufferSize": 5000,
     "carrierEnabled": true,
-    "carrierUrl": "wss://mon.smartevo.de/ws/agent/v1/",
+    "carrierUrl": "wss://mon.sharegy.de/ws/agent/v1/",
     "pvPowerId": "",
     "gridPowerId": "",
     "gridPowerSign": "pos_import",

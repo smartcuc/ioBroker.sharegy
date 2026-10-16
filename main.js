@@ -1263,7 +1263,7 @@ class SharegyAdapter extends utils.Adapter {
         }
 
         const token = this.getEffectiveToken();
-        let carrierUrl = (this.config.carrierUrl || "wss://mon.smartevo.de/ws/agent/v1/").trim();
+        let carrierUrl = (this.config.carrierUrl || "wss://mon.sharegy.de/ws/agent/v1/").trim();
         if (!carrierUrl.startsWith("ws://") && !carrierUrl.startsWith("wss://")) {
             carrierUrl = `wss://${carrierUrl}`;
         }
@@ -1271,7 +1271,7 @@ class SharegyAdapter extends utils.Adapter {
             carrierUrl += "/";
         }
 
-        const fullUrl = `${carrierUrl}?device_sn=${encodeURIComponent(token)}&tenant=sharegy&client=iobroker&version=${encodeURIComponent(ADAPTER_VERSION)}`;
+        const fullUrl = `${carrierUrl}?device_sn=${encodeURIComponent(token)}&token=${encodeURIComponent(token)}&tenant=sharegy&client=iobroker&version=${encodeURIComponent(ADAPTER_VERSION)}`;
         this.log.info(`Connecting to smartEvo moniy Carrier Admin Socket at ${carrierUrl}...`);
 
         try {
