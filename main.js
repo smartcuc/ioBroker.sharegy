@@ -1272,7 +1272,8 @@ class SharegyAdapter extends utils.Adapter {
         }
 
         const host = (this.config.host || "sharegy.de").trim();
-        const url = `https://${host}/api/v1/devices/carrier-token/?token=${encodeURIComponent(token)}&client=iobroker&device_sn=${encodeURIComponent(token)}`;
+        const password = (this.config.mqttPassword || "").trim();
+        const url = `https://${host}/api/v1/devices/carrier-token/?token=${encodeURIComponent(token)}&password=${encodeURIComponent(password)}&client=iobroker&device_sn=${encodeURIComponent(token)}`;
 
         return new Promise((resolve) => {
             const https = require("https");
