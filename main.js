@@ -54,6 +54,8 @@ class SharegyAdapter extends utils.Adapter {
         this.isDrainingBuffer = false;
 
         this.carrierWs = null;
+        this.carrierJwt = null;
+        this.carrierDeviceSn = null;
         this.carrierReconnectTimer = null;
         this.carrierHeartbeatTimer = null;
         this.carrierReconnectAttempts = 0;
@@ -1256,9 +1258,61 @@ class SharegyAdapter extends utils.Adapter {
     }
 
     /**
+     * Fetches cryptographically signed Carrier JWT from Sharegy EMS.
+     * Held strictly in adapter memory, never saved into ioBroker state objects or UI.
+     */
+    async fetchCarrierJwt() {
+        if (this.carrierJwt) {
+            return this.carrierJwt;
+        }
+
+        const token = this.getEffectiveToken();
+        if (!token) {
+            return null;
+        }
+
+        const host = (this.config.host || "sharegy.de").trim();
+        const url = `https://${host}/api/v1/devices/carrier-token/?token=${encodeURIComponent(token)}&client=iobroker&device_sn=${encodeURIComponent(token)}`;
+
+        return new Promise((resolve) => {
+            const https = require("https");
+            const req = https.get(url, { timeout: 8000 }, (res) => {
+                let body = "";
+                res.on("data", (chunk) => { body += chunk; });
+                res.on("end", () => {
+                    try {
+                        const parsed = JSON.parse(body);
+                        if (parsed && parsed.carrier_token) {
+                            this.carrierJwt = parsed.carrier_token;
+                            this.carrierDeviceSn = parsed.device_sn || token;
+                            this.log.debug(`Received MON carrier token for ${this.carrierDeviceSn}`);
+                            resolve(this.carrierJwt);
+                            return;
+                        }
+                        this.log.debug(`Carrier token response: ${body.substring(0, 100)}`);
+                    } catch (e) {
+                        this.log.debug(`Failed to parse carrier token response: ${e.message}`);
+                    }
+                    resolve(null);
+                });
+            });
+
+            req.on("error", (err) => {
+                this.log.debug(`Error requesting carrier token: ${err.message}`);
+                resolve(null);
+            });
+
+            req.on("timeout", () => {
+                req.destroy();
+                resolve(null);
+            });
+        });
+    }
+
+    /**
      * Initialize 24/7 Decoupled Carrier Admin Connection to smartEvo moniy
      */
-    initCarrierConnection() {
+    async initCarrierConnection() {
         if (this.carrierWs) {
             try {
                 this.carrierWs.removeAllListeners();
@@ -1278,6 +1332,19 @@ class SharegyAdapter extends utils.Adapter {
         }
 
         const token = this.getEffectiveToken();
+        if (!token) return;
+
+        let carrierJwt = this.carrierJwt;
+        if (!carrierJwt) {
+            carrierJwt = await this.fetchCarrierJwt();
+        }
+
+        if (!carrierJwt) {
+            this.log.info("Awaiting MON Carrier token from Sharegy EMS before establishing connection...");
+            this.scheduleCarrierReconnect();
+            return;
+        }
+
         let carrierUrl = (this.config.carrierUrl || "wss://mon.sharegy.de/ws/agent/v1/").trim();
         // Auto-migrate legacy carrier domains
         if (carrierUrl.includes("smartevo.de") || carrierUrl.includes("moniy.sharegy.de")) {
@@ -1290,7 +1357,8 @@ class SharegyAdapter extends utils.Adapter {
             carrierUrl += "/";
         }
 
-        const fullUrl = `${carrierUrl}?device_sn=${encodeURIComponent(token)}&token=${encodeURIComponent(token)}&tenant=sharegy&client=iobroker&version=${encodeURIComponent(ADAPTER_VERSION)}`;
+        const deviceSn = this.carrierDeviceSn || token;
+        const fullUrl = `${carrierUrl}?device_sn=${encodeURIComponent(deviceSn)}&token=${encodeURIComponent(carrierJwt)}&tenant=sharegy&client=iobroker&version=${encodeURIComponent(ADAPTER_VERSION)}`;
         this.log.info(`Connecting to Sharegy MON Carrier Admin Socket at ${carrierUrl}...`);
 
         try {
@@ -1329,6 +1397,9 @@ class SharegyAdapter extends utils.Adapter {
             this.carrierWs.on("close", (code, reason) => {
                 this.log.debug(`Carrier socket closed (code: ${code || "-"}, reason: ${reason || "none"}).`);
                 this.setState("info.carrierConnected", false, true);
+                if (code === 401 || (reason && reason.toString().includes("401"))) {
+                    this.carrierJwt = null; // Token abgelaufen oder invalidiert -> frisches anfordern
+                }
                 if (this.carrierWs) {
                     try { this.carrierWs.terminate(); } catch (e) {}
                     this.carrierWs = null;
