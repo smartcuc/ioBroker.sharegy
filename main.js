@@ -1730,6 +1730,34 @@ class SharegyAdapter extends utils.Adapter {
                     break;
                 }
 
+                case "carrier.reconnect":
+                case "ws.reconnect": {
+                    sendResponse({ reconnecting: true, message: "Carrier reconnection initiated." });
+                    if (this.carrierWs) {
+                        this.carrierWs.close();
+                    }
+                    break;
+                }
+
+                case "device.reboot":
+                case "sys.reboot": {
+                    sendResponse({ rebooting: true, message: "Host reboot requested." });
+                    this.log.warn("[Carrier RPC] Remote host reboot requested by Sharegy MON.");
+                    break;
+                }
+
+                case "logs.get_tail":
+                case "logs.tail": {
+                    const linesCount = Number(params.lines || 50);
+                    sendResponse({
+                        lines_requested: linesCount,
+                        recent_errors: (this.errorLogBuffer || []).slice(-linesCount),
+                        status: "OK",
+                        timestamp: Date.now(),
+                    });
+                    break;
+                }
+
                 default: {
                     sendResponse(null, { code: -32601, message: `Method '${method}' not found` });
                     break;
