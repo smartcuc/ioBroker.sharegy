@@ -1608,9 +1608,12 @@ class SharegyAdapter extends utils.Adapter {
         try {
             switch (method) {
                 case "sys.ping": {
+                    const now = new Date();
                     sendResponse({
                         pong: true,
-                        timestamp: Date.now(),
+                        timestamp: now.getTime(),
+                        timestamp_iso: now.toISOString(),
+                        time_local: now.toLocaleTimeString("de-DE"),
                         uptime: Math.round(process.uptime()),
                         version: ADAPTER_VERSION,
                     });
