@@ -16,21 +16,21 @@
         },
         "pairingPin": {
           "type": "text",
-          "label": "Kopplungscode (6-stelliger PIN)",
+          "label": "6-stelliger Kopplungs-PIN (Zero-Touch Onboarding)",
           "default": "",
-          "placeholder": "z. B. 123456",
-          "help": "6-stelliger Kopplungscode aus Sharegy OS (unter Gerät hinzufügen / Kopplungscode). Wird bei der Ersteinrichtung einmalig eingegeben.",
+          "placeholder": "z. B. 311 287",
+          "help": "Erzeuge deinen 6-stelligen PIN in Sharegy OS unter Schnittstellen → ioBroker und trage ihn hier ein. Der Adapter autorisiert sich vollautomatisch per WSS!",
           "sm": 12,
-          "md": 6
+          "md": 12
         },
         "wsUrl": {
           "type": "text",
-          "label": "Sharegy WebSocket URL / Home Token",
+          "label": "Sharegy WebSocket URL (Optional für On-Premise/Custom Server)",
           "default": "wss://sharegy.de/ws/energy/",
-          "placeholder": "z. B. d12bc2d0-6828-46 oder wss://sharegy.de/ws/energy/d12bc2d0-6828-46/",
-          "help": "Home Token oder vollständige WSS-URL aus Sharegy OS (wird nach Kopplung automatisch verknüpft).",
+          "placeholder": "wss://sharegy.de/ws/energy/",
+          "help": "Standard: wss://sharegy.de/ws/energy/ (muss in der Regel nicht geändert werden).",
           "sm": 12,
-          "md": 6
+          "md": 12
         },
         "dividerGeneral": {
           "type": "divider"
