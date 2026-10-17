@@ -8,81 +8,27 @@
       "items": {
         "headerConn": {
           "type": "header",
-          "text": "Sichere Sharegy Plattform-Verbindung"
+          "text": "Sichere Sharegy Plattform-Verbindung (WSS)"
         },
         "infoConn": {
           "type": "staticText",
-          "text": "Die Verbindung erfolgt standardmäßig sicher und verschlüsselt per WebSocket Secure (WSS über Port 443). Kopiere dazu einfach deine persönliche WebSocket-URL aus der Sharegy Web-App (unter Einstellungen -> Schnittstellen)."
+          "text": "Die Verbindung erfolgt sicher und firewall-freundlich per WebSocket Secure (WSS über Port 443). Zur Kopplung einfach den 6-stelligen Kopplungscode oder die 1-Klick WSS-URL aus Sharegy OS eingeben."
         },
-        "protocol": {
-          "type": "select",
-          "label": "Verbindungsprotokoll",
-          "default": "wss",
-          "options": [
-            { "value": "wss", "label": "🔒 WSS (WebSocket Secure via Port 443 - Empfohlen & Firewall-sicher)" },
-            { "value": "mqtts", "label": "🛡️ MQTTS (MQTT über TLS via Port 8883)" }
-          ],
-          "sm": 12,
-          "md": 12
-        },
-        "dividerConnWss": {
-          "type": "divider",
-          "hidden": "data.protocol !== 'wss'"
-        },
-        "wsUrl": {
+        "pairingPin": {
           "type": "text",
-          "label": "Sharegy WebSocket URL oder Home Token",
-          "default": "wss://sharegy.de/ws/energy/",
-          "placeholder": "z. B. d12bc2d0-6828-46 oder wss://sharegy.de/ws/energy/d12bc2d0-6828-46/",
-          "help": "Gib dein Home Token (z. B. d12bc2d0-6828-46) oder die vollständige URL wss://sharegy.de/ws/energy/<TOKEN>/ ein",
-          "hidden": "data.protocol !== 'wss'",
-          "sm": 12,
-          "md": 12
-        },
-        "dividerConnMqtt": {
-          "type": "divider",
-          "hidden": "data.protocol !== 'mqtts'"
-        },
-        "host": {
-          "type": "text",
-          "label": "MQTT Server Host",
-          "default": "sharegy.de",
-          "hidden": "data.protocol !== 'mqtts'",
-          "sm": 12,
-          "md": 8
-        },
-        "port": {
-          "type": "number",
-          "label": "Port",
-          "default": 8883,
-          "min": 1,
-          "max": 65535,
-          "hidden": "data.protocol !== 'mqtts'",
-          "sm": 12,
-          "md": 4
-        },
-        "mqttToken": {
-          "type": "text",
-          "label": "Home Token (aus Sharegy Einstellungen)",
+          "label": "Kopplungscode (6-stelliger PIN)",
           "default": "",
-          "help": "z. B. 48f9d3b1-7a2e-4b9c-8512-32a10e7b89f0",
-          "hidden": "data.protocol !== 'mqtts'",
-          "sm": 12,
-          "md": 12
-        },
-        "mqttUsername": {
-          "type": "text",
-          "label": "Benutzername (optional)",
-          "default": "",
-          "hidden": "data.protocol !== 'mqtts'",
+          "placeholder": "z. B. 123456",
+          "help": "6-stelliger Kopplungscode aus Sharegy OS (unter Gerät hinzufügen / Kopplungscode). Wird bei der Ersteinrichtung einmalig eingegeben.",
           "sm": 12,
           "md": 6
         },
-        "mqttPassword": {
-          "type": "password",
-          "label": "Passwort (optional)",
-          "default": "",
-          "hidden": "data.protocol !== 'mqtts'",
+        "wsUrl": {
+          "type": "text",
+          "label": "Sharegy WebSocket URL / Home Token",
+          "default": "wss://sharegy.de/ws/energy/",
+          "placeholder": "z. B. d12bc2d0-6828-46 oder wss://sharegy.de/ws/energy/d12bc2d0-6828-46/",
+          "help": "Home Token oder vollständige WSS-URL aus Sharegy OS (wird nach Kopplung automatisch verknüpft).",
           "sm": 12,
           "md": 6
         },

@@ -7,10 +7,9 @@
  */
 
 const utils = require("@iobroker/adapter-core");
-const mqtt = require("mqtt");
 const WebSocket = require("ws");
 const pkg = require("./package.json");
-const ADAPTER_VERSION = (pkg && pkg.version) || "2.2.0";
+const ADAPTER_VERSION = (pkg && pkg.version) || "2.2.5";
 const UpdateWatchdog = require("./lib/updateWatchdog");
 const AutoDiscoveryScanner = require("./lib/autoDiscovery");
 
@@ -36,7 +35,6 @@ class SharegyAdapter extends utils.Adapter {
             name: "sharegy",
         });
 
-        this.mqttClient = null;
         this.wsClient = null;
         this.reconnectTimer = null;
         this.reconnectAttempts = 0;
@@ -201,16 +199,6 @@ class SharegyAdapter extends utils.Adapter {
             } catch (e) {}
         }
 
-        if (this.mqttClient) {
-            const client = this.mqttClient;
-            this.mqttClient = null;
-            try {
-                client.removeAllListeners();
-                client.on("error", () => {});
-                client.end(true);
-            } catch (e) {}
-        }
-
         if (this.carrierHeartbeatTimer) {
             clearInterval(this.carrierHeartbeatTimer);
             this.carrierHeartbeatTimer = null;
@@ -303,171 +291,163 @@ class SharegyAdapter extends utils.Adapter {
     }
 
     /**
-     * Connect to Sharegy (WSS WebSocket or MQTTS)
+     * Auto-pairs ioBroker adapter with Sharegy OS if a 6-digit pairing PIN is entered
      */
-    connect() {
-        const proto = (this.config.protocol || "wss").toLowerCase();
+    async autoPairIfPinConfigured() {
+        const pin = (this.config.pairingPin || "").replace("-", "").trim();
+        if (!pin || pin.length !== 6) return null;
+
+        const host = (this.config.host || "sharegy.de").trim();
+        const deviceId = this.getEffectiveToken() || `IOB-${Math.random().toString(16).substring(2, 10)}`;
+
+        this.log.info(`[PAIRING] Löse 6-stelligen Kopplungscode '${pin}' bei Sharegy OS ein...`);
+        const url = `https://${host}/api/v1/devices/pairing/claim/`;
+
+        return new Promise((resolve) => {
+            const https = require("https");
+            const reqData = JSON.stringify({
+                pin: pin,
+                device_id: deviceId,
+                client: "iobroker",
+                client_type: "iobroker",
+                model: "ioBroker Sharegy Adapter",
+                firmware_version: ADAPTER_VERSION,
+            });
+
+            const req = https.request(url, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Content-Length": Buffer.byteLength(reqData),
+                },
+                timeout: 8000,
+            }, (res) => {
+                let body = "";
+                res.on("data", (chunk) => { body += chunk; });
+                res.on("end", () => {
+                    try {
+                        const parsed = JSON.parse(body);
+                        if (parsed && (parsed.status === "PAIRED" || parsed.carrier_token)) {
+                            this.log.info(`[PAIRING] Erfolgreich mit Sharegy OS gekoppelt! (Gerät: ${parsed.device_identifier || deviceId})`);
+                            if (parsed.carrier_token) {
+                                this.carrierJwt = parsed.carrier_token;
+                                this.carrierDeviceSn = parsed.device_identifier || deviceId;
+                            }
+                            if (parsed.home_token && !this.config.token) {
+                                this.config.token = parsed.home_token;
+                            }
+                            this.config.pairingPin = "";
+                            resolve(parsed);
+                            return;
+                        }
+                        this.log.warn(`[PAIRING] Kopplung fehlgeschlagen: ${parsed.error || body}`);
+                    } catch (e) {
+                        this.log.warn(`[PAIRING] Antwort konnte nicht gelesen werden: ${e.message}`);
+                    }
+                    resolve(null);
+                });
+            });
+
+            req.on("error", (err) => {
+                this.log.warn(`[PAIRING] Netzwerkfehler beim Einlösen des PINs: ${err.message}`);
+                resolve(null);
+            });
+
+            req.write(reqData);
+            req.end();
+        });
+    }
+
+    /**
+     * Connect to Sharegy (Pure Secure WebSocket over Port 443)
+     */
+    async connect() {
+        if (this.config.pairingPin && this.config.pairingPin.trim()) {
+            await this.autoPairIfPinConfigured();
+        }
+
         const token = this.getEffectiveToken();
 
         this.cleanupSockets();
 
-        // ==========================================
-        // 1. WSS (Native Secure WebSocket over 443)
-        // ==========================================
-        if (proto === "wss") {
-            let wsUrl = (this.config.wsUrl || "").trim();
-            let host = (this.config.host || "sharegy.de").trim();
+        let wsUrl = (this.config.wsUrl || "").trim();
+        let host = (this.config.host || "sharegy.de").trim();
 
-            // Auto-migrate legacy smartevo hosts
-            if (host.includes("smartevo.de")) {
-                host = "sharegy.de";
-            }
-            if (wsUrl.includes("smartevo.de")) {
-                wsUrl = wsUrl.replace("sharegy.smartevo.de", "sharegy.de")
-                             .replace("moniy.smartevo.de", "sharegy.de")
-                             .replace("smartevo.de", "sharegy.de");
-            }
-
-            if (!wsUrl || /^[a-zA-Z0-9_-]{8,64}$/.test(wsUrl)) {
-                wsUrl = `wss://sharegy.de/ws/energy/${token ? token + "/" : ""}`;
-            } else {
-                if (wsUrl.startsWith("http://")) wsUrl = wsUrl.replace("http://", "ws://");
-                else if (wsUrl.startsWith("https://")) wsUrl = wsUrl.replace("https://", "wss://");
-                else if (!wsUrl.startsWith("ws://") && !wsUrl.startsWith("wss://")) wsUrl = `wss://${wsUrl}`;
-
-                if (token && !wsUrl.includes(`/ws/energy/${token}`)) {
-                    wsUrl = wsUrl.replace(/\/ws\/energy\/?$/, "");
-                    wsUrl = `${wsUrl}/ws/energy/${token}/`;
-                }
-                if (!wsUrl.endsWith("/")) {
-                    wsUrl += "/";
-                }
-                if (!wsUrl.includes("?")) {
-                    wsUrl += `?client=iobroker&source=iobroker&version=${encodeURIComponent(ADAPTER_VERSION)}`;
-                }
-            }
-
-            this.log.info(`Connecting to Sharegy via Secure WebSocket (WSS) at ${wsUrl}...`);
-
-            try {
-                this.wsClient = new WebSocket(wsUrl, {
-                    handshakeTimeout: 10000,
-                    perMessageDeflate: false,
-                });
-
-                this.wsClient.on("open", () => {
-                    this.log.info("Connected to Sharegy WebSocket (WSS) successfully!");
-                    this.reconnectAttempts = 0;
-                    this.lastHeartbeatTimestamp = Date.now();
-                    this.setState("info.connection", true, true);
-                    this.setState("floorheating.offline_autonomous", false, true);
-
-                    this.startHeartbeatWatchdog();
-                    this.drainOfflineBuffer();
-                    this.publishAllStates();
-                });
-
-                this.wsClient.on("message", (data) => {
-                    this.lastHeartbeatTimestamp = Date.now();
-                    this.handleIncomingWsMessage(data);
-                });
-
-                this.wsClient.on("pong", () => {
-                    this.lastHeartbeatTimestamp = Date.now();
-                });
-
-                this.wsClient.on("error", (err) => {
-                    this.log.warn(`WebSocket error: ${err.message || err}`);
-                    this.setState("info.connection", false, true);
-                    this.cleanupSockets();
-                    this.scheduleReconnect();
-                });
-
-                this.wsClient.on("close", (code, reason) => {
-                    this.log.warn(`WebSocket connection closed (code: ${code || "-"}, reason: ${reason || "none"}).`);
-                    this.setState("info.connection", false, true);
-                    this.cleanupSockets();
-                    this.scheduleReconnect();
-                });
-
-            } catch (e) {
-                this.log.error(`Failed to initiate WebSocket connection: ${e.message}`);
-                this.cleanupSockets();
-                this.scheduleReconnect();
-            }
-            return;
+        // Auto-migrate legacy smartevo hosts
+        if (host.includes("smartevo.de")) {
+            host = "sharegy.de";
+        }
+        if (wsUrl.includes("smartevo.de")) {
+            wsUrl = wsUrl.replace("sharegy.smartevo.de", "sharegy.de")
+                         .replace("moniy.smartevo.de", "sharegy.de")
+                         .replace("smartevo.de", "sharegy.de");
         }
 
-        // ==========================================
-        // 2. MQTTS (MQTT over TLS Port 8883)
-        // ==========================================
-        const host = (this.config.host || "sharegy.de").trim();
-        const port = Number(this.config.port) || 8883;
-        const url = `mqtts://${host}:${port}`;
-        const clientId = `iobroker_sharegy_${this.instance}_${Math.random().toString(16).substring(2, 8)}`;
+        if (!wsUrl || /^[a-zA-Z0-9_-]{8,64}$/.test(wsUrl)) {
+            wsUrl = `wss://sharegy.de/ws/energy/${token ? token + "/" : ""}`;
+        } else {
+            if (wsUrl.startsWith("http://")) wsUrl = wsUrl.replace("http://", "ws://");
+            else if (wsUrl.startsWith("https://")) wsUrl = wsUrl.replace("https://", "wss://");
+            else if (!wsUrl.startsWith("ws://") && !wsUrl.startsWith("wss://")) wsUrl = `wss://${wsUrl}`;
 
-        const options = {
-            clientId,
-            clean: true,
-            connectTimeout: 10000,
-            reconnectPeriod: 5000,
-            rejectUnauthorized: true,
-        };
+            if (token && !wsUrl.includes(`/ws/energy/${token}`)) {
+                wsUrl = wsUrl.replace(/\/ws\/energy\/?$/, "");
+                wsUrl = `${wsUrl}/ws/energy/${token}/`;
+            }
+            if (!wsUrl.endsWith("/")) {
+                wsUrl += "/";
+            }
+            if (!wsUrl.includes("?")) {
+                wsUrl += `?client=iobroker&source=iobroker&version=${encodeURIComponent(ADAPTER_VERSION)}`;
+            }
+        }
 
-        if (this.config.mqttUsername) options.username = this.config.mqttUsername.trim();
-        if (this.config.mqttPassword) options.password = this.config.mqttPassword;
-
-        this.log.info(`Connecting to Sharegy via MQTTS at ${url} (ClientID: ${clientId})...`);
+        this.log.info(`Connecting to Sharegy via Secure WebSocket (WSS) at ${wsUrl}...`);
 
         try {
-            this.mqttClient = mqtt.connect(url, options);
+            this.wsClient = new WebSocket(wsUrl, {
+                handshakeTimeout: 10000,
+                perMessageDeflate: false,
+            });
 
-            this.mqttClient.on("connect", () => {
-                this.log.info("Connected to Sharegy MQTT Broker successfully!");
+            this.wsClient.on("open", () => {
+                this.log.info("Connected to Sharegy WebSocket (WSS) successfully!");
                 this.reconnectAttempts = 0;
                 this.lastHeartbeatTimestamp = Date.now();
                 this.setState("info.connection", true, true);
                 this.setState("floorheating.offline_autonomous", false, true);
-
-                const controlTopicWildcard = `h/${token}/+/set`;
-                const globalControlTopic = `h/${token}/control/#`;
-                const fbhTopic = `h/${token}/floor_heating/#`;
-
-                this.mqttClient.subscribe([controlTopicWildcard, globalControlTopic, fbhTopic], (err) => {
-                    if (err) {
-                        this.log.error(`Failed to subscribe to control topics: ${err.message}`);
-                    } else {
-                        this.log.info(`Subscribed to Sharegy control channels.`);
-                    }
-                });
 
                 this.startHeartbeatWatchdog();
                 this.drainOfflineBuffer();
                 this.publishAllStates();
             });
 
-            this.mqttClient.on("message", (topic, payload) => {
+            this.wsClient.on("message", (data) => {
                 this.lastHeartbeatTimestamp = Date.now();
-                this.handleIncomingMqttMessage(topic, payload);
+                this.handleIncomingWsMessage(data);
             });
 
-            this.mqttClient.on("error", (err) => {
-                this.log.warn(`MQTT Error: ${err.message}`);
+            this.wsClient.on("pong", () => {
+                this.lastHeartbeatTimestamp = Date.now();
+            });
+
+            this.wsClient.on("error", (err) => {
+                this.log.warn(`WebSocket error: ${err.message || err}`);
                 this.setState("info.connection", false, true);
+                this.cleanupSockets();
                 this.scheduleReconnect();
             });
 
-            this.mqttClient.on("close", () => {
-                this.log.debug("MQTT connection closed.");
+            this.wsClient.on("close", (code, reason) => {
+                this.log.warn(`WebSocket connection closed (code: ${code || "-"}, reason: ${reason || "none"}).`);
                 this.setState("info.connection", false, true);
-            });
-
-            this.mqttClient.on("reconnect", () => {
-                this.log.debug("Reconnecting to Sharegy MQTT Broker...");
+                this.cleanupSockets();
+                this.scheduleReconnect();
             });
 
         } catch (e) {
-            this.log.error(`Failed to create MQTT client: ${e.message}`);
+            this.log.error(`Failed to initiate WebSocket connection: ${e.message}`);
+            this.cleanupSockets();
             this.scheduleReconnect();
         }
     }
@@ -476,11 +456,7 @@ class SharegyAdapter extends utils.Adapter {
      * Check if connection is currently active
      */
     isConnectionActive() {
-        const proto = (this.config.protocol || "wss").toLowerCase();
-        if (proto === "wss") {
-            return this.wsClient && this.wsClient.readyState === WebSocket.OPEN;
-        }
-        return this.mqttClient && this.mqttClient.connected;
+        return Boolean(this.wsClient && this.wsClient.readyState === WebSocket.OPEN);
     }
 
     /**
@@ -845,30 +821,15 @@ class SharegyAdapter extends utils.Adapter {
     }
 
     /**
-     * Low-level send method supporting both WebSocket and MQTT
+     * Low-level send method via Secure WebSocket (WSS)
      */
     sendTelemetryPacket(topic, payload) {
-        const proto = (this.config.protocol || "wss").toLowerCase();
-        if (proto === "wss") {
-            if (this.wsClient && this.wsClient.readyState === WebSocket.OPEN) {
-                this.wsClient.send(JSON.stringify(payload));
-                this.log.debug(`Sent via WSS: ${JSON.stringify(payload)}`);
-                return true;
-            }
-            return false;
-        } else {
-            if (this.mqttClient && this.mqttClient.connected) {
-                this.mqttClient.publish(topic, JSON.stringify(payload), { qos: 0, retain: false }, (err) => {
-                    if (err) {
-                        this.log.warn(`Failed to publish to ${topic}: ${err.message}`);
-                    } else {
-                        this.log.debug(`Published to ${topic}: ${JSON.stringify(payload)}`);
-                    }
-                });
-                return true;
-            }
-            return false;
+        if (this.wsClient && this.wsClient.readyState === WebSocket.OPEN) {
+            this.wsClient.send(JSON.stringify(payload));
+            this.log.debug(`Sent via WSS: ${JSON.stringify(payload)}`);
+            return true;
         }
+        return false;
     }
 
     /**
@@ -1029,30 +990,70 @@ class SharegyAdapter extends utils.Adapter {
     }
 
     /**
-     * Handle incoming control commands from Sharegy MQTT
+     * Handle incoming control commands from Sharegy via Secure WebSocket
      */
-    async handleIncomingMqttMessage(topic, payloadBuffer) {
-        const payloadStr = payloadBuffer.toString();
-        this.log.info(`Received command from Sharegy on topic [${topic}]: ${payloadStr}`);
-        await this.setStateAsync("control.lastCommand", payloadStr, true);
-
-        const parts = topic.split("/");
-        if (parts.length < 3) return;
-        const identifier = parts[2];
-
-        let data = {};
-        try {
-            data = JSON.parse(payloadStr);
-        } catch (e) {
-            if (payloadStr === "true" || payloadStr === "1") data = { val: true };
-            else if (payloadStr === "false" || payloadStr === "0") data = { val: false };
-            else data = { val: payloadStr };
+    async handleIncomingWsMessage(data) {
+        let payloadStr = "";
+        if (typeof data === "string") {
+            payloadStr = data;
+        } else if (Buffer.isBuffer(data)) {
+            payloadStr = data.toString("utf8");
+        } else if (data) {
+            payloadStr = String(data);
         }
 
-        const rawVal = data.val !== undefined ? data.val : (data.value !== undefined ? data.value : (data.state !== undefined ? data.state : data));
+        if (!payloadStr) return;
+        this.log.debug(`Received WebSocket message from Sharegy: ${payloadStr}`);
+
+        let json = {};
+        try {
+            json = JSON.parse(payloadStr);
+        } catch (e) {
+            this.log.debug(`Non-JSON WebSocket message received: ${payloadStr}`);
+            return;
+        }
+
+        // Fast response to ping/heartbeats
+        if (json.type === "pong" || json.method === "pong") {
+            return;
+        }
+        if (json.type === "ping" || json.method === "ping") {
+            if (this.wsClient && this.wsClient.readyState === WebSocket.OPEN) {
+                try { this.wsClient.send(JSON.stringify({ type: "pong", status: "ok" })); } catch (e) {}
+            }
+            return;
+        }
+
+        await this.setStateAsync("control.lastCommand", payloadStr, true);
+
+        // Extract identifier & value (supporting direct JSON, JSON-RPC, and topics)
+        const params = (json.params && typeof json.params === "object") ? json.params : {};
+        let identifier = json.identifier || params.identifier || "";
+        if (!identifier && json.topic) {
+            const parts = json.topic.split("/");
+            if (parts.length >= 3) identifier = parts[2];
+        }
+
+        // If JSON-RPC method like "relay.set" or "Switch.Set"
+        if (!identifier && (json.method === "relay.set" || json.method === "Switch.Set" || json.method === "Switch.Toggle")) {
+            const ch = params.channel !== undefined ? params.channel : (params.id !== undefined ? (Number(params.id) + 1) : 1);
+            identifier = `relay${ch}`;
+        }
+
+        const rawVal = json.val !== undefined ? json.val : (
+            json.value !== undefined ? json.value : (
+                json.state !== undefined ? json.state : (
+                    params.state !== undefined ? params.state : (
+                        params.on !== undefined ? params.on : (
+                            params.val !== undefined ? params.val : json
+                        )
+                    )
+                )
+            )
+        );
 
         // 1. Process 24h MPC Schedule sync & timeline caching
-        const timeline = data.timeline || (data.predictive_mpc && data.predictive_mpc.timeline);
+        const timeline = json.timeline || (json.predictive_mpc && json.predictive_mpc.timeline) || params.timeline;
         if (Array.isArray(timeline) && timeline.length > 0) {
             this.cachedSchedule24h = timeline;
             await this.setStateAsync("floorheating.cached_schedule", JSON.stringify(timeline), true);
@@ -1060,8 +1061,8 @@ class SharegyAdapter extends utils.Adapter {
         }
 
         // 2. Update live status & setpoints
-        if (data.flow_temp_setpoint_c !== undefined) {
-            const spVal = Number(data.flow_temp_setpoint_c);
+        if (json.flow_temp_setpoint_c !== undefined || params.flow_temp_setpoint_c !== undefined) {
+            const spVal = Number(json.flow_temp_setpoint_c ?? params.flow_temp_setpoint_c);
             await this.setStateAsync("status.flow_temp_setpoint", spVal, true);
             await this.setStateAsync("floorheating.flow_temp_setpoint", spVal, true);
 
@@ -1070,19 +1071,20 @@ class SharegyAdapter extends utils.Adapter {
             }
         }
 
-        if (data.screed_soc_pct !== undefined) {
-            const socVal = Number(data.screed_soc_pct);
+        if (json.screed_soc_pct !== undefined || params.screed_soc_pct !== undefined) {
+            const socVal = Number(json.screed_soc_pct ?? params.screed_soc_pct);
             await this.setStateAsync("status.screed_soc", socVal, true);
             await this.setStateAsync("floorheating.screed_soc", socVal, true);
         }
 
-        if (data.mode !== undefined) {
-            await this.setStateAsync("status.operating_mode", String(data.mode), true);
-            await this.setStateAsync("floorheating.operating_mode", String(data.mode), true);
+        if (json.mode !== undefined || params.mode !== undefined) {
+            const modeVal = String(json.mode ?? params.mode);
+            await this.setStateAsync("status.operating_mode", modeVal, true);
+            await this.setStateAsync("floorheating.operating_mode", modeVal, true);
         }
 
-        if (data.floor_heating_boost !== undefined || data.action === "FLOOR_HEATING_BOOST" || identifier === "floor_heating_boost") {
-            const boostActive = Boolean(data.floor_heating_boost ?? (data.action === "FLOOR_HEATING_BOOST" || rawVal === true || rawVal === 1));
+        if (json.floor_heating_boost !== undefined || json.action === "FLOOR_HEATING_BOOST" || identifier === "floor_heating_boost") {
+            const boostActive = Boolean(json.floor_heating_boost ?? (json.action === "FLOOR_HEATING_BOOST" || rawVal === true || rawVal === 1));
             await this.setStateAsync("control.floor_heating_boost", boostActive, true);
             await this.setStateAsync("floorheating.boost_active", boostActive, true);
 
@@ -1091,8 +1093,8 @@ class SharegyAdapter extends utils.Adapter {
             }
         }
 
-        if (data.bwwp_boost !== undefined || identifier === "bwwp_boost") {
-            const bwwpActive = Boolean(data.bwwp_boost ?? (rawVal === true || rawVal === 1));
+        if (json.bwwp_boost !== undefined || identifier === "bwwp_boost") {
+            const bwwpActive = Boolean(json.bwwp_boost ?? (rawVal === true || rawVal === 1));
             await this.setStateAsync("control.bwwp_boost", bwwpActive, true);
         }
 
@@ -1101,7 +1103,7 @@ class SharegyAdapter extends utils.Adapter {
             let targetRelay = (rawVal === true || rawVal === "true" || rawVal === 1 || rawVal === "1" || rawVal === "ON" || rawVal === "on");
             let finalRelay = targetRelay;
             if (this.config.fbhRelayInvert) finalRelay = !finalRelay;
-            this.log.info(`Executing Floor Heating Relay via MQTT: Setting [${finalRelay}] to [${this.config.fbhRelayTargetId}]`);
+            this.log.info(`Executing Floor Heating Relay via WSS: Setting [${finalRelay}] to [${this.config.fbhRelayTargetId}]`);
             await this.setForeignStateAsync(this.config.fbhRelayTargetId.trim(), finalRelay);
             await this.setStateAsync("floorheating.relay_state", Boolean(targetRelay), true);
         }
@@ -1132,6 +1134,13 @@ class SharegyAdapter extends utils.Adapter {
                 }
             }
         }
+    }
+
+    /**
+     * Legacy wrapper for backward compatibility
+     */
+    async handleIncomingMqttMessage(topic, payloadBuffer) {
+        return this.handleIncomingWsMessage(payloadBuffer);
     }
 
     /**
@@ -1258,6 +1267,77 @@ class SharegyAdapter extends utils.Adapter {
     }
 
     /**
+     * Attempts to pair device automatically if a 6-digit PIN is configured
+     */
+    async autoPairIfPinConfigured() {
+        const pin = (this.config.pairingPin || "").replace(/-/g, "").trim();
+        if (!pin || pin.length !== 6 || !/^\d{6}$/.test(pin)) {
+            return;
+        }
+
+        const token = this.getEffectiveToken();
+        const host = (this.config.host || "sharegy.de").trim();
+        const url = `https://${host}/api/v1/devices/pairing/claim/`;
+
+        this.log.info(`[PAIRING] Versuche automatische Kopplung mit 6-stelligem PIN (${pin.substring(0, 3)}-***)...`);
+
+        return new Promise((resolve) => {
+            const https = require("https");
+            const postData = JSON.stringify({
+                pin,
+                device_id: token || `iob_${this.instance}`,
+                client: "iobroker",
+                model: "ioBroker Sharegy Adapter",
+                firmware_version: ADAPTER_VERSION,
+            });
+
+            const req = https.request(url, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Content-Length": Buffer.byteLength(postData),
+                },
+                timeout: 8000,
+            }, (res) => {
+                let body = "";
+                res.on("data", (chunk) => { body += chunk; });
+                res.on("end", () => {
+                    try {
+                        const parsed = JSON.parse(body);
+                        if (res.statusCode >= 200 && res.statusCode < 300) {
+                            this.log.info(`[PAIRING] Erfolgreich gekoppelt! Gerät ${parsed.device_name || parsed.device_identifier} autorisiert.`);
+                            if (parsed.carrier_token) {
+                                this.carrierJwt = parsed.carrier_token;
+                            }
+                            this.config.pairingPin = "";
+                            resolve(true);
+                            return;
+                        } else {
+                            this.log.warn(`[PAIRING] Kopplungsversuch abgewiesen (HTTP ${res.statusCode}): ${parsed.error || body}`);
+                        }
+                    } catch (e) {
+                        this.log.debug(`[PAIRING] Fehler beim Parsen der Kopplungsantwort: ${e.message}`);
+                    }
+                    resolve(false);
+                });
+            });
+
+            req.on("error", (err) => {
+                this.log.warn(`[PAIRING] Netzwerkfehler bei PIN-Kopplung: ${err.message}`);
+                resolve(false);
+            });
+
+            req.on("timeout", () => {
+                req.destroy();
+                resolve(false);
+            });
+
+            req.write(postData);
+            req.end();
+        });
+    }
+
+    /**
      * Fetches cryptographically signed Carrier JWT from Sharegy EMS.
      * Held strictly in adapter memory, never saved into ioBroker state objects or UI.
      */
@@ -1271,9 +1351,15 @@ class SharegyAdapter extends utils.Adapter {
             return null;
         }
 
+        if (this.config.pairingPin && String(this.config.pairingPin).trim()) {
+            await this.autoPairIfPinConfigured();
+            if (this.carrierJwt) {
+                return this.carrierJwt;
+            }
+        }
+
         const host = (this.config.host || "sharegy.de").trim();
-        const password = (this.config.mqttPassword || "").trim();
-        const url = `https://${host}/api/v1/devices/carrier-token/?token=${encodeURIComponent(token)}&password=${encodeURIComponent(password)}&client=iobroker&device_sn=${encodeURIComponent(token)}`;
+        const url = `https://${host}/api/v1/devices/carrier-token/?token=${encodeURIComponent(token)}&client=iobroker&device_sn=${encodeURIComponent(token)}`;
 
         return new Promise((resolve) => {
             const https = require("https");
@@ -1290,7 +1376,11 @@ class SharegyAdapter extends utils.Adapter {
                             resolve(this.carrierJwt);
                             return;
                         }
-                        this.log.debug(`Carrier token response: ${body.substring(0, 100)}`);
+                        if (res.statusCode === 403) {
+                            this.log.warn(`[AUTH] Gerät ${token} ist noch nicht gekoppelt (HTTP 403). Bitte in Sharegy OS unter Schnittstellen den 6-stelligen Kopplungscode (PIN) eingeben oder im Adapter hinterlegen.`);
+                        } else {
+                            this.log.debug(`Carrier token response: ${body.substring(0, 100)}`);
+                        }
                     } catch (e) {
                         this.log.debug(`Failed to parse carrier token response: ${e.message}`);
                     }

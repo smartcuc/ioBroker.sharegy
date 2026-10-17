@@ -1,8 +1,12 @@
 {
   "common": {
     "name": "sharegy",
-    "version": "2.2.4",
+    "version": "2.2.5",
     "news": {
+      "2.2.5": {
+        "en": "Pure Secure WebSocket (WSS) and 6-digit Zero-Touch PIN Pairing, removed legacy MQTT configuration",
+        "de": "Reine Secure WebSocket (WSS) Architektur mit 6-stelligem Zero-Touch PIN-Pairing, veraltete MQTT-Optionen vollständig bereinigt"
+      },
       "2.2.4": {
         "en": "Auto-migrate legacy smartevo hosts, support raw token input in WebSocket URL field, rename carrier to Sharegy MON",
         "de": "Automatische Migration veralteter smartevo-Hosts, Unterstützung direkter Token-Eingabe im WebSocket-Feld, Umbenennung Carrier auf Sharegy MON"
@@ -73,14 +77,10 @@
     "installedFrom": "https://github.com/smartcuc/ioBroker.sharegy"
   },
   "native": {
-    "protocol": "wss",
+    "pairingPin": "",
     "wsUrl": "wss://sharegy.de/ws/energy/",
     "host": "sharegy.de",
-    "port": 8883,
-    "path": "/mqtt",
-    "mqttToken": "",
-    "mqttUsername": "",
-    "mqttPassword": "",
+    "token": "",
     "minSendIntervalSec": 5,
     "bufferOfflineData": true,
     "maxBufferSize": 5000,
